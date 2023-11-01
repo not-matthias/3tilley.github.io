@@ -1,5 +1,3 @@
-Here you can say lots of fun things about your site.
+I write Rust and Python, and I'm particularly interested in CLIs and observability
 
-Maybe say a some things about yourself.
-
-Or maybe what you plan to blog about.
+This is my space to discuss things that I'm working on, thing that have piqued my interest, and perhaps some soapboxing
