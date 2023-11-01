@@ -24,7 +24,7 @@ rss: rss
 
 kramdown:
   syntax_highlighter_opts:
-    disable: true
+    disable: false
     
 plugins:
   - jekyll-feed
@@ -40,3 +40,6 @@ defaults:
       type: post
     values:
       tags: Other
+
+
+google_analytics: G-W8MM0ES7PC
