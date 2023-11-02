@@ -18,9 +18,9 @@ github_username: "3tilley"
 #########################################################################################
 ######### Nothing below needs to be changed (unless you know what you're doing) #########
 #########################################################################################
-remote_theme: "jekyll/minima"
+#remote_theme: "jekyll/minima"
 
-#theme: "minima"
+theme: "minima"
 rss: rss
 
 kramdown:
@@ -29,8 +29,8 @@ kramdown:
 
 plugins:
   - jekyll-sitemap
-  - jekyll-remote-theme
-  - jekyll-feed
+  #- jekyll-remote-theme
+  #- jekyll-feed
 
 titles_from_headings:
   strip_title: true
