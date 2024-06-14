@@ -355,10 +355,10 @@ I've added results for Windows and Linux, but take these with a significant grai
 
 
 Results 1 test
-![[../ipc-results-graph.png]]
+![results](../ipc-results-graph.png)
 
 Results 2 test
-![[ipc-results-graph.png]]
+![results](ipc-results-graph.png)
 
 As is pretty clear, the time per operation is similar for most of the approaches, apart from using shared memory. We can perform a ping-pong in under 200ns, or around 1000 processor cycles. I have to admit, I still found this a little disappointing. Moving a few bytes around should be faster than that, but I'm going to resist digging too deep yet. Preparing an environment with core-pinning and the correct thread priority is tricky, and given we have to do this with two concurrently running processes, it's even more difficult. Consider too that with hyper-threaded cores, should these processes run on different physical cores, or different logical cores? Do I have to disable Spectre/Meltdown type mitigations? Which cache cache level can we share? Having sunk a lot of hours into this situation before, I'm going to leave the log unflipped for now.
 
