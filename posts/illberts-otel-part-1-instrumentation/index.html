@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+<head>
+    
+    <meta charset="utf-8"> <meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation</title>
+
+
+<meta name="keywords" content="rust, python">
+
+
+
+<meta name="description" content="">
+
+
+
+
+
+<link rel="canonical" href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;illberts-otel-part-1-instrumentation&#x2F;">
+
+
+<link rel="stylesheet" href="https://3tilley.github.io/css/includes/scroll-bar.css">
+<link rel="stylesheet" href="https://3tilley.github.io/css/styles.css">
+<link rel="stylesheet" href="https://3tilley.github.io/css/override.css">
+
+
+
+
+
+
+
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
+    </style>
+    
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
+
+            .list {
+                background: var(--theme);
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
+
+    </style>
+    
+</noscript>
+
+
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-W8MM0ES7PC"></script>
+<script>
+  window['ga-disable-G-W8MM0ES7PC'] = window.doNotTrack === "1" || navigator.doNotTrack === "1" || navigator.doNotTrack === "yes" || navigator.msDoNotTrack === "1";
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){window.dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-W8MM0ES7PC');
+</script>
+
+
+
+
+    
+</head>
+<body class="" id="top">
+    
+    
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;" accesskey="h" title="TheTraitModern (Alt + H)">
+                TheTraitModern
+            </a>
+            <div class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+                <ul class="lang-switch">
+                    <li></li>
+                </ul>
+            </div>
+        </div>
+        
+        <ul id="menu">
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;&#x2F;archive" title="Archive">
+                    <span>Archive</span>
+                    
+                </a>
+            </li>
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;&#x2F;tags" title="Tags">
+                    <span>Tags</span>
+                    
+                </a>
+            </li>
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;getzola.com&#x2F;" title="Zola">
+                    <span>Zola</span>
+                    
+                    <svg fill="none" shape-rendering="geometricPrecision" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24" height="12" width="12">
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"></path>
+                        <path d="M15 3h6v6"></path>
+                        <path d="M10 14L21 3"></path>
+                    </svg>
+                    
+                </a>
+            </li>
+            
+        </ul>
+        
+    </nav>
+</header>
+
+    
+    <main class="main">
+        
+<article class="post-single">
+  <header class="post-header">
+      <div class="breadcrumbs">
+          <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;">Home</a>&nbsp;»&nbsp;
+          <a href="https://3tilley.github.io/posts/">Posts</a>&nbsp;»&nbsp;
+          <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;illberts-otel-part-1-instrumentation&#x2F;">Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation</a>
+      </div>
+      <h1 class="post-title">Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation</h1>
+      
+      
+      <div class="post-meta">
+      
+
+
+
+
+
+
+
+
+
+
+
+
+<span title="2023-10-31 00:00:00 +0000">2023-10-31</span>&nbsp;·&nbsp;9 min&nbsp;·&nbsp;
+
+      
+          &nbsp;|&nbsp;<a href="https:&#x2F;&#x2F;github.com&#x2F;3tilley&#x2F;3tilley.github.io&#x2F;tree&#x2F;master/content/posts&#x2F;2023-10-31-illberts-otel-part-1-instrumentation.md" rel="noopener noreferrer" target="_blank">Suggest Changes</a>
+
+      
+      </div>
+      
+  </header>
+
+  
+  
+
+<div class="toc">
+    <details  open>
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner">
+            <ul>
+                
+                <li>
+                    <a href="#prerequisites" aria-label="Prerequisites">Prerequisites</a>
+                    
+                    <ul>
+                    
+                        <li>
+                            <a href="#improvement" aria-label="Improvement:">Improvement:</a>
+                            
+                        </li>
+                    
+                    </ul>
+                    
+                </li>
+                
+                <li>
+                    <a href="#first-fundamental-vendor-agnostic-instrumentation" aria-label="First Fundamental - Vendor Agnostic Instrumentation">First Fundamental - Vendor Agnostic Instrumentation</a>
+                    
+                    <ul>
+                    
+                        <li>
+                            <a href="#you-already-know-how-this-works" aria-label="You already know how this works">You already know how this works</a>
+                            
+                        </li>
+                    
+                        <li>
+                            <a href="#outside-logging" aria-label="Outside Logging">Outside Logging</a>
+                            
+                            <ul>
+                                
+                                <li><a href="#historical-note" aria-label="Historical note">Historical note</a></li>
+                                
+                            </ul>
+                            
+                        </li>
+                    
+                    </ul>
+                    
+                </li>
+                
+                <li>
+                    <a href="#instrumenting-with-opentelemetry" aria-label="Instrumenting with OpenTelemetry">Instrumenting with OpenTelemetry</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#pitfalls" aria-label="Pitfalls">Pitfalls</a>
+                    
+                </li>
+                
+            </ul>
+        </div>
+    </details>
+</div>
+
+
+  
+
+  
+  <div class="post-content">
+      <!-- For some reason has to be removed in Zola ## Illbert's OTel in Rust - Part 1 - Instrumentation -->
+<p>I wanted to write some blog posts on using OpenTelemetry (OTel) in Rust. OpenTelemetry will become the dominant player in the telemetry landscape, as it's supported by the majority of the big cloud players and vendors. My personal view is that it's pretty good, albeit (infinitely?) complex. This isn't helped by how new the standard is, as well as the current immaturity of the Rust libraries as the community iterates towards the best way of doing things.</p>
+<p>We'll discuss how OTel came about, and why it's useful for your libraries.</p>
+<h3 id="prerequisites">Prerequisites<a class="anchor" aria-hidden="true" href="#prerequisites" hidden="">#</a>
+</h3>
+<p>It's useful to understand what a log, trace, and metric are (collectively known in OTel as Signals). This can either be from reading about them on the <a href="https://opentelemetry.io/docs/concepts/signals/">concepts page</a> or from your experience using in your own applications pre-OpenTelemetry. That would be tracing systems like Zipkin / Jaeger, and metrics from Prometheus / StatsD.</p>
+<p>To understand the end goal, it might also be worth checking out the <a href="https://opentelemetry.io/docs/demo/">OpenTelemetry demo</a> for Rust or another language. The demo can also be used to impress/persuade your colleagues and management, other people in your coworking space, and maybe even housemates and partners. If you don't want to download and run the Docker containers yourself you can just check out the <a href="https://opentelemetry.io/docs/demo/screenshots/">screenshots</a>. </p>
+<h4 id="improvement">Improvement:<a class="anchor" aria-hidden="true" href="#improvement" hidden="">#</a>
+</h4>
+<p>If anyone has an example of these demos running live and publicly accessible please let me know and I'll link</p>
+<h1 id="first-fundamental-vendor-agnostic-instrumentation">First Fundamental - Vendor Agnostic Instrumentation<a class="anchor" aria-hidden="true" href="#first-fundamental-vendor-agnostic-instrumentation" hidden="">#</a>
+</h1>
+<p>I sometimes think it's lost within the complex verbiage of OTel what the goal is. The instrumentation goal is for all library code to have a simple and unambiguous way of injecting observability into their code. The rest is the concern of applications.</p>
+<h2 id="you-already-know-how-this-works">You already know how this works<a class="anchor" aria-hidden="true" href="#you-already-know-how-this-works" hidden="">#</a>
+</h2>
+<p>This should seem familiar, as it's the approach we've landed on in the past for logging. A library doesn't care about Splunk, or the licensing around your ELK stack, it merely instruments what it thinks users might find useful - perhaps under a sensible namespace. The application running that library is then responsible for worrying about:</p>
+<ul>
+<li>How to format the messages</li>
+<li>What granularity of messages are desired (INFO, DEBUG)</li>
+<li>What modules and types of logs are desired</li>
+<li>Where to put the log messages</li>
+<li>Rotating files, pushing to syslog, how to batch messages to send to a logging system, etc</li>
+</ul>
+<p>Once a library has logged, its responsibilities are complete. To do anything else would be impolite, if not a straight up bug. Python of course has <a href="https://docs.python.org/3/howto/logging.html#library-config">quirks</a> to work around, but in general, a well-behaved library might look like the below.</p>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#65737e;"># mylib.py
+</span><span style="color:#b48ead;">import </span><span>logging
+</span><span>logger = logging.</span><span style="color:#bf616a;">getLogger</span><span>(__name__)
+</span><span>
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">my_func</span><span>():
+</span><span>    </span><span style="color:#d08770;">...
+</span><span>    logger.</span><span style="color:#bf616a;">debug</span><span>(&quot;</span><span style="color:#a3be8c;">About to call external service</span><span>&quot;)
+</span><span>    result = </span><span style="color:#bf616a;">call_external_service</span><span>(endpoint)
+</span><span>    </span><span style="color:#b48ead;">if </span><span>result:
+</span><span>        logger.</span><span style="color:#bf616a;">info</span><span>(&quot;</span><span style="color:#a3be8c;">Success result from external service</span><span>&quot;)
+</span><span>    </span><span style="color:#b48ead;">else</span><span>:
+</span><span>        logger.</span><span style="color:#bf616a;">error</span><span>(&quot;</span><span style="color:#a3be8c;">Error occurred</span><span>&quot;)
+</span></code></pre>
+<p>Rust is similar, but I've not used for the example due to the general movement away from logs towards tracing.</p>
+<p>Note the lack of any vendor code. All of the above is standard library. This is similar in other languages, even if there are multiple vendor-agnostic logging libraries, or they aren't part of the standard library as in <a href="https://www.marcobehler.com/guides/java-logging">Java</a>.</p>
+<h2 id="outside-logging">Outside Logging<a class="anchor" aria-hidden="true" href="#outside-logging" hidden="">#</a>
+</h2>
+<p>Buoyed by the success of logging, but hungry for more insight into their application, developers have reached for more tools to see what's going on. Traces - particularly useful for distributed architectures, and Metrics - particularly useful for dashboards and alerting. Jaeger and Prometheus respectively are great tools for this.</p>
+<p>Our example Python library instrumented to provide this insight might look like the below:</p>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#65737e;"># mylib.py
+</span><span style="color:#b48ead;">import </span><span>mylib.jaeger.get_tracer
+</span><span style="color:#b48ead;">import </span><span>logging
+</span><span style="color:#b48ead;">import </span><span>prometheus_client
+</span><span>
+</span><span style="color:#65737e;"># Vanilla logger
+</span><span>logger = logging.</span><span style="color:#bf616a;">getLogger</span><span>(__name__)
+</span><span>
+</span><span style="color:#65737e;"># Jaeger Tracer for spans
+</span><span>jaeger_tracer = mylib.jaeger.</span><span style="color:#bf616a;">get_tracer</span><span>()
+</span><span>
+</span><span style="color:#65737e;"># Prometheus Metric
+</span><span>prom_counter = prometheus_client.</span><span style="color:#bf616a;">Counter</span><span>(
+</span><span>    &quot;</span><span style="color:#a3be8c;">service_call_count</span><span>&quot;,
+</span><span>    &quot;</span><span style="color:#a3be8c;">Count of call to the external service</span><span>&quot;,
+</span><span>    [&quot;</span><span style="color:#a3be8c;">endpoint</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">is_success</span><span>&quot;]
+</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">my_func</span><span>():
+</span><span>    </span><span style="color:#d08770;">...
+</span><span>    logger.</span><span style="color:#bf616a;">debug</span><span>(&quot;</span><span style="color:#a3be8c;">About to call external service</span><span>&quot;)
+</span><span>    </span><span style="color:#b48ead;">with </span><span>jaeger_tracer.</span><span style="color:#bf616a;">start_span</span><span>(&quot;</span><span style="color:#a3be8c;">ExternalServiceCall</span><span>&quot;) </span><span style="color:#b48ead;">as </span><span>span:
+</span><span>        result = </span><span style="color:#bf616a;">call_external_service</span><span>(endpoint)
+</span><span>        </span><span style="color:#b48ead;">if </span><span>result:
+</span><span>            logger.</span><span style="color:#bf616a;">info</span><span>(&quot;</span><span style="color:#a3be8c;">Success result from external service</span><span>&quot;)
+</span><span>            prom_counter.</span><span style="color:#bf616a;">labels</span><span>(endpoint, &quot;</span><span style="color:#a3be8c;">true</span><span>&quot;).</span><span style="color:#bf616a;">inc</span><span>()
+</span><span>            span.</span><span style="color:#bf616a;">log_kv</span><span>({&quot;</span><span style="color:#a3be8c;">event</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">Successful call</span><span>&quot;})
+</span><span>        </span><span style="color:#b48ead;">else</span><span>:
+</span><span>            logger.</span><span style="color:#bf616a;">error</span><span>(&quot;</span><span style="color:#a3be8c;">Error occurred</span><span>&quot;)
+</span><span>            span.</span><span style="color:#bf616a;">log_kv</span><span>({&quot;</span><span style="color:#a3be8c;">event</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">Failed call</span><span>&quot;})
+</span><span>            prom_counter.</span><span style="color:#bf616a;">labels</span><span>(endpoint, &quot;</span><span style="color:#a3be8c;">false</span><span>&quot;).</span><span style="color:#bf616a;">inc</span><span>()
+</span></code></pre>
+<p>This is cool in that we can see lots about the code as it executes but:</p>
+<ul>
+<li>We're bound to Jaeger and Prometheus, which is questionable for 1st party libs but really no good for third party libraries that could be used anywhere</li>
+<li>It all seems rather cluttered, and some of the information feels like it's been repeated</li>
+<li>The information has to be repeated because the signals are separate. They are independently instrumented and configured</li>
+</ul>
+<h4 id="historical-note">Historical note<a class="anchor" aria-hidden="true" href="#historical-note" hidden="">#</a>
+</h4>
+<p>Before the comments start flowing, I should note that the above would have been State of the Art around 2015, and there has been a <a href="https://www.alibabacloud.com/blog/the-evolution-history-of-observable-data-standards-from-opentracing-and-opencensus-to-opentelemetry_599289">lot of effort</a> since to be more general:</p>
+<ul>
+<li>The Python Jaeger client was been deprecated in favour of OpenTracing</li>
+<li>Prometheus released OpenMetrics to allow other libraries and services to interact with their data</li>
+<li>Google released their metrics and traces rival OpenCensus</li>
+<li>OpenTracing and OpenCensus combined to form OpenTelemetry</li>
+<li>OpenMetrics is still a separate but <a href="https://signoz.io/blog/openmetrics-vs-opentelemetry/">experimentally compatible</a> project?
+I'm glossing over the details because they are historical, and while they improved things they didn't solve the issue</li>
+</ul>
+<h1 id="instrumenting-with-opentelemetry">Instrumenting with OpenTelemetry<a class="anchor" aria-hidden="true" href="#instrumenting-with-opentelemetry" hidden="">#</a>
+</h1>
+<p>With the General Availability release of OpenTelemetry (track more subtle details <a href="https://opentelemetry.io/docs/specs/status/">here</a>), we can now take the same approach to all signals as was taken for logging. We'll move to Rust, but the same is possible in lots of other languages, (and the client libraries are often more mature). A similar library might look like like this:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">use </span><span>tracing::{error, event, info_span, instrument, span, Level};  
+</span><span style="color:#b48ead;">use </span><span>opentelemetry_api::{global, KeyValue};  
+</span><span style="color:#b48ead;">use </span><span>std::thread;  
+</span><span style="color:#b48ead;">use </span><span>std::time::Duration;  
+</span><span>  
+</span><span>#[</span><span style="color:#bf616a;">instrument</span><span>]  
+</span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">expensive_work</span><span>() -&gt; &amp;</span><span style="color:#b48ead;">&#39;static str </span><span>{  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> meter = global::meter(&quot;</span><span style="color:#a3be8c;">mylib</span><span>&quot;);  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> counter_step_1 = meter.</span><span style="color:#96b5b4;">u64_counter</span><span>(&quot;</span><span style="color:#a3be8c;">step_1</span><span>&quot;).</span><span style="color:#96b5b4;">with_description</span><span>(&quot;</span><span style="color:#a3be8c;">Calls to expensive step 1</span><span>&quot;).</span><span style="color:#96b5b4;">init</span><span>();  
+</span><span>    counter_step_1.</span><span style="color:#96b5b4;">add</span><span>(</span><span style="color:#d08770;">1</span><span style="color:#b48ead;">u64</span><span>, &amp;[]);  
+</span><span>    span!(Level::</span><span style="color:#d08770;">INFO</span><span>, &quot;</span><span style="color:#a3be8c;">expensive_step_1</span><span>&quot;)  
+</span><span>        .</span><span style="color:#96b5b4;">in_scope</span><span>(|| thread::sleep(Duration::from_millis(</span><span style="color:#d08770;">25</span><span>)));  
+</span><span>    </span><span style="color:#65737e;">// Short form of the span above  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> counter_step_2 = meter.</span><span style="color:#96b5b4;">u64_counter</span><span>(&quot;</span><span style="color:#a3be8c;">step_2</span><span>&quot;).</span><span style="color:#96b5b4;">init</span><span>();  
+</span><span>    info_span!(&quot;</span><span style="color:#a3be8c;">expensive_step_2</span><span>&quot;)  
+</span><span>        .</span><span style="color:#96b5b4;">in_scope</span><span>(|| {  
+</span><span>            thread::sleep(Duration::from_millis(</span><span style="color:#d08770;">25</span><span>));  
+</span><span>            </span><span style="color:#b48ead;">let</span><span> pid = std::process::id();  
+</span><span>            </span><span style="color:#b48ead;">match</span><span> pid % </span><span style="color:#d08770;">8 </span><span>{  
+</span><span>                x </span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#d08770;">0</span><span>..=</span><span style="color:#d08770;">3</span><span>).</span><span style="color:#96b5b4;">contains</span><span>(&amp;x) =&gt; {  
+</span><span>                    event!(Level::</span><span style="color:#d08770;">INFO</span><span>, name = &quot;</span><span style="color:#a3be8c;">success</span><span>&quot;, result = x);  
+</span><span>                    counter_step_2.</span><span style="color:#96b5b4;">add</span><span>(</span><span style="color:#d08770;">1</span><span>, [  
+</span><span>                        KeyValue::new(&quot;</span><span style="color:#a3be8c;">result</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">success</span><span>&quot;)  
+</span><span>                    ].</span><span style="color:#96b5b4;">as_ref</span><span>());  
+</span><span>                    &quot;</span><span style="color:#a3be8c;">Service call succeeded</span><span>&quot;  
+</span><span>                },  
+</span><span>                x =&gt; {  
+</span><span>                    </span><span style="color:#65737e;">// Shorthand for event!(tracing::Level::ERROR, &quot;failure&quot;, result=x);  
+</span><span>                    error!(name = &quot;</span><span style="color:#a3be8c;">failure</span><span>&quot;, result = x);  
+</span><span>                    counter_step_2.</span><span style="color:#96b5b4;">add</span><span>(</span><span style="color:#d08770;">1</span><span>, [  
+</span><span>                        KeyValue::new(&quot;</span><span style="color:#a3be8c;">result</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">failure</span><span>&quot;)  
+</span><span>                    ].</span><span style="color:#96b5b4;">as_ref</span><span>());  
+</span><span>                    &quot;</span><span style="color:#a3be8c;">Service call failed</span><span>&quot;  
+</span><span>                },  
+</span><span>            }  
+</span><span>        })  
+</span><span>}
+</span></code></pre>
+<p>The combination of moving to Rust, and the nature of the OTel beast means this has added a chunk of extra code. However there are now several advantages:</p>
+<ul>
+<li>We've done away with logging entirely
+<ul>
+<li>A tracing event without any attributes is similar to emitting a log message - and there is a movement within rust to simply replace log calls to tracing calls. You'll note that the TRACE, DEBUG, INFO, WARN, and ERROR levels match those available in the log crate, and there are various options for your downstream users to treat them as such, if they just want standard logging</li>
+<li>Bear in mind that in Rust, tracing isn't OTel, but it can be configured downstream to act like it. If you just want to do one thing to tidy up your code, migrating <code>log -&gt; tracing</code> and thinking in terms of structured logging is probably it</li>
+</ul>
+</li>
+<li>We can get better detail
+<ul>
+<li>Using events in conjunction with spans allows the context of that event to be captured. In our example we can tell that the failure occurred within the call to <code>expensive_step_2</code>. Obvious from our snippet of code, but it pushes that context out of the codebase, so it can be seen more easily in an ops plane</li>
+<li>Additionally imagine that call was made in a number of different places, you can easily filter the output to instances where it happened within <code>run_calculations_for_important_client()</code> perhaps</li>
+</ul>
+</li>
+<li>We can add instrumentation easily for our functions
+<ul>
+<li>While the manual work with the counters and spans was annoying, did you notice <code>#[instrument]</code> macro at the top? That opens and closes another span for us automatically. That macro <em>was</em> presumably fiddly boilerplate to get right for the implementer. But since there should now only be one way of instrumenting things, authors are incentivised to provide those utilities, and we can cheaply sprinkle them in our code</li>
+</ul>
+</li>
+<li>We get auto-instrumentation
+<ul>
+<li>Related to the above, the OTel vision is that the majority of your code should now be auto-instrumented. Most likely the external service call would be <code>reqwest</code>, <code>sqlx</code>, or similar. Library and framework authors do the hard work once, everyone else benefits</li>
+<li>Previously there were myriad extensions in Python just for tracing like <code>flask-jaeger</code>, <code>flask-zipkin</code>,  <code>flask-sleuth</code>, so many that PyPI disabled the ability to search with pip from the command line (maybe). Now by installing the OpenTelemetry extensions, or in some cases even without, you've got a good start on observability out of the box - just like the situation we got to with logging. Anything extra we add interacts with and complements that</li>
+</ul>
+</li>
+</ul>
+<h1 id="pitfalls">Pitfalls<a class="anchor" aria-hidden="true" href="#pitfalls" hidden="">#</a>
+</h1>
+<p>It's not all plain sailing:</p>
+<ul>
+<li>Tracing async code needs <a href="https://docs.rs/tracing/latest/tracing/struct.Span.html#in-asynchronous-code">special care</a></li>
+<li>It's not as easy as logging to get right. With logs you're just working with arbitrary text - typos and all. To correctly aggregate your data at a later stage with structured logging, you need to take care to name things sensibly - and there is a <a href="https://opentelemetry.io/docs/specs/otel/common/">large section</a> of the OTel docs dedicated to that</li>
+<li>You need to set up exporters and other things to get the value out of the instrumentation. That we'll deal with another time - but, spoiler alert: the app configuration is significantly harder than the library instrumentation - even just to print to stdout</li>
+<li>It's a new standard, and while the APIs are now largely stable, common best practice and availability of helper methods are still evolving</li>
+</ul>
+
+  </div>
+  
+
+  <footer class="post-footer">
+      
+      <ul class="post-tags">
+          
+          
+          <li><a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;tags&#x2F;opentelemetry&#x2F;">OpenTelemetry</a></li>
+          
+          
+          <li><a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;tags&#x2F;rust&#x2F;">Rust</a></li>
+          
+          
+          <li><a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;tags&#x2F;python&#x2F;">Python</a></li>
+          
+      </ul>
+      
+
+    
+    
+
+
+<nav class="paginav">
+    
+    
+    <a class="next" href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;simple-ipc-ping-pong&#x2F;">
+        <span class="title">Next »</span>
+        <br>
+        <span>IPC in Rust - a Ping Pong Comparison</span>
+    </a>
+    
+</nav>
+
+
+    
+    
+  </footer>
+
+</article>
+
+    </main>
+    
+    <footer class="footer">
+    
+    <span>&copy; 2024 <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;"></a></span>
+    
+    <span>
+        Powered by
+        <a href="https://www.getzola.org/" rel="noopener noreferrer" target="_blank">Zola</a> &
+        <a href="https://github.com/cydave/zola-theme-papermod" rel="noopener" target="_blank">PaperMod</a>
+    </span>
+</footer>
+
+
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
+
+
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
+
+</script>
+
+
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
+
+</script>
+
+
+
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
+
+</script>
+
+
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
+
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerText = 'copy';
+        function copyingDone() {
+            copybutton.innerText = 'copied!';
+            setTimeout(() => {
+                copybutton.innerText = 'copy';
+            }, 2000);
+        }
+
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
+
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
+
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            // td containing LineNos
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            // table containing LineNos and code
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            // code blocks not having highlight as parent class
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
+
+
+    
+</body>
+</html>

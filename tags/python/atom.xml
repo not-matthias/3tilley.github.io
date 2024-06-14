@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title> - Python</title>
+    <link href="https://3tilley.github.io/tags/python/atom.xml" rel="self" type="application/atom+xml"/>
+    <link href="https://3tilley.github.io/"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2023-10-31T00:00:00+00:00</updated>
+    <id>https://3tilley.github.io/tags/python/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation</title>
+        <published>2023-10-31T00:00:00+00:00</published>
+        <updated>2023-10-31T00:00:00+00:00</updated>
+        <author>
+          <name>Unknown</name>
+        </author>
+        <link rel="alternate" href="https://3tilley.github.io/posts/illberts-otel-part-1-instrumentation/" type="text/html"/>
+        <id>https://3tilley.github.io/posts/illberts-otel-part-1-instrumentation/</id>
+        
+        <content type="html">&lt;!-- For some reason has to be removed in Zola ## Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation --&gt;
+&lt;p&gt;I wanted to write some blog posts on using OpenTelemetry (OTel) in Rust. OpenTelemetry will become the dominant player in the telemetry landscape, as it&#x27;s supported by the majority of the big cloud players and vendors. My personal view is that it&#x27;s pretty good, albeit (infinitely?) complex. This isn&#x27;t helped by how new the standard is, as well as the current immaturity of the Rust libraries as the community iterates towards the best way of doing things.&lt;&#x2F;p&gt;
+&lt;p&gt;We&#x27;ll discuss how OTel came about, and why it&#x27;s useful for your libraries.&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;prerequisites&quot;&gt;Prerequisites&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#prerequisites&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h3&gt;
+&lt;p&gt;It&#x27;s useful to understand what a log, trace, and metric are (collectively known in OTel as Signals). This can either be from reading about them on the &lt;a href=&quot;https:&#x2F;&#x2F;opentelemetry.io&#x2F;docs&#x2F;concepts&#x2F;signals&#x2F;&quot;&gt;concepts page&lt;&#x2F;a&gt; or from your experience using in your own applications pre-OpenTelemetry. That would be tracing systems like Zipkin &#x2F; Jaeger, and metrics from Prometheus &#x2F; StatsD.&lt;&#x2F;p&gt;
+&lt;p&gt;To understand the end goal, it might also be worth checking out the &lt;a href=&quot;https:&#x2F;&#x2F;opentelemetry.io&#x2F;docs&#x2F;demo&#x2F;&quot;&gt;OpenTelemetry demo&lt;&#x2F;a&gt; for Rust or another language. The demo can also be used to impress&#x2F;persuade your colleagues and management, other people in your coworking space, and maybe even housemates and partners. If you don&#x27;t want to download and run the Docker containers yourself you can just check out the &lt;a href=&quot;https:&#x2F;&#x2F;opentelemetry.io&#x2F;docs&#x2F;demo&#x2F;screenshots&#x2F;&quot;&gt;screenshots&lt;&#x2F;a&gt;. &lt;&#x2F;p&gt;
+&lt;h4 id=&quot;improvement&quot;&gt;Improvement:&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#improvement&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h4&gt;
+&lt;p&gt;If anyone has an example of these demos running live and publicly accessible please let me know and I&#x27;ll link&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;first-fundamental-vendor-agnostic-instrumentation&quot;&gt;First Fundamental - Vendor Agnostic Instrumentation&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#first-fundamental-vendor-agnostic-instrumentation&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;I sometimes think it&#x27;s lost within the complex verbiage of OTel what the goal is. The instrumentation goal is for all library code to have a simple and unambiguous way of injecting observability into their code. The rest is the concern of applications.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;you-already-know-how-this-works&quot;&gt;You already know how this works&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#you-already-know-how-this-works&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;This should seem familiar, as it&#x27;s the approach we&#x27;ve landed on in the past for logging. A library doesn&#x27;t care about Splunk, or the licensing around your ELK stack, it merely instruments what it thinks users might find useful - perhaps under a sensible namespace. The application running that library is then responsible for worrying about:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;How to format the messages&lt;&#x2F;li&gt;
+&lt;li&gt;What granularity of messages are desired (INFO, DEBUG)&lt;&#x2F;li&gt;
+&lt;li&gt;What modules and types of logs are desired&lt;&#x2F;li&gt;
+&lt;li&gt;Where to put the log messages&lt;&#x2F;li&gt;
+&lt;li&gt;Rotating files, pushing to syslog, how to batch messages to send to a logging system, etc&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;Once a library has logged, its responsibilities are complete. To do anything else would be impolite, if not a straight up bug. Python of course has &lt;a href=&quot;https:&#x2F;&#x2F;docs.python.org&#x2F;3&#x2F;howto&#x2F;logging.html#library-config&quot;&gt;quirks&lt;&#x2F;a&gt; to work around, but in general, a well-behaved library might look like the below.&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;# mylib.py
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;import &lt;&#x2F;span&gt;&lt;span&gt;logging
+&lt;&#x2F;span&gt;&lt;span&gt;logger = logging.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;getLogger&lt;&#x2F;span&gt;&lt;span&gt;(__name__)
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;def &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;my_func&lt;&#x2F;span&gt;&lt;span&gt;():
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;...
+&lt;&#x2F;span&gt;&lt;span&gt;    logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;debug&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;About to call external service&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;span&gt;    result = &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;call_external_service&lt;&#x2F;span&gt;&lt;span&gt;(endpoint)
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;result:
+&lt;&#x2F;span&gt;&lt;span&gt;        logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;info&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Success result from external service&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;else&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;        logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;error&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Error occurred&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Rust is similar, but I&#x27;ve not used for the example due to the general movement away from logs towards tracing.&lt;&#x2F;p&gt;
+&lt;p&gt;Note the lack of any vendor code. All of the above is standard library. This is similar in other languages, even if there are multiple vendor-agnostic logging libraries, or they aren&#x27;t part of the standard library as in &lt;a href=&quot;https:&#x2F;&#x2F;www.marcobehler.com&#x2F;guides&#x2F;java-logging&quot;&gt;Java&lt;&#x2F;a&gt;.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;outside-logging&quot;&gt;Outside Logging&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#outside-logging&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h2&gt;
+&lt;p&gt;Buoyed by the success of logging, but hungry for more insight into their application, developers have reached for more tools to see what&#x27;s going on. Traces - particularly useful for distributed architectures, and Metrics - particularly useful for dashboards and alerting. Jaeger and Prometheus respectively are great tools for this.&lt;&#x2F;p&gt;
+&lt;p&gt;Our example Python library instrumented to provide this insight might look like the below:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;# mylib.py
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;import &lt;&#x2F;span&gt;&lt;span&gt;mylib.jaeger.get_tracer
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;import &lt;&#x2F;span&gt;&lt;span&gt;logging
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;import &lt;&#x2F;span&gt;&lt;span&gt;prometheus_client
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;# Vanilla logger
+&lt;&#x2F;span&gt;&lt;span&gt;logger = logging.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;getLogger&lt;&#x2F;span&gt;&lt;span&gt;(__name__)
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;# Jaeger Tracer for spans
+&lt;&#x2F;span&gt;&lt;span&gt;jaeger_tracer = mylib.jaeger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;get_tracer&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;# Prometheus Metric
+&lt;&#x2F;span&gt;&lt;span&gt;prom_counter = prometheus_client.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;Counter&lt;&#x2F;span&gt;&lt;span&gt;(
+&lt;&#x2F;span&gt;&lt;span&gt;    &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;service_call_count&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Count of call to the external service&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;,
+&lt;&#x2F;span&gt;&lt;span&gt;    [&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;endpoint&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;is_success&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;]
+&lt;&#x2F;span&gt;&lt;span&gt;)
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;def &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;my_func&lt;&#x2F;span&gt;&lt;span&gt;():
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;...
+&lt;&#x2F;span&gt;&lt;span&gt;    logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;debug&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;About to call external service&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;with &lt;&#x2F;span&gt;&lt;span&gt;jaeger_tracer.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;start_span&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;ExternalServiceCall&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;) &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;as &lt;&#x2F;span&gt;&lt;span&gt;span:
+&lt;&#x2F;span&gt;&lt;span&gt;        result = &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;call_external_service&lt;&#x2F;span&gt;&lt;span&gt;(endpoint)
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;result:
+&lt;&#x2F;span&gt;&lt;span&gt;            logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;info&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Success result from external service&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;span&gt;            prom_counter.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;labels&lt;&#x2F;span&gt;&lt;span&gt;(endpoint, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;inc&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;            span.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;log_kv&lt;&#x2F;span&gt;&lt;span&gt;({&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;event&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;: &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Successful call&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;})
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;else&lt;&#x2F;span&gt;&lt;span&gt;:
+&lt;&#x2F;span&gt;&lt;span&gt;            logger.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;error&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Error occurred&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)
+&lt;&#x2F;span&gt;&lt;span&gt;            span.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;log_kv&lt;&#x2F;span&gt;&lt;span&gt;({&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;event&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;: &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Failed call&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;})
+&lt;&#x2F;span&gt;&lt;span&gt;            prom_counter.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;labels&lt;&#x2F;span&gt;&lt;span&gt;(endpoint, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;false&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;inc&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;This is cool in that we can see lots about the code as it executes but:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;We&#x27;re bound to Jaeger and Prometheus, which is questionable for 1st party libs but really no good for third party libraries that could be used anywhere&lt;&#x2F;li&gt;
+&lt;li&gt;It all seems rather cluttered, and some of the information feels like it&#x27;s been repeated&lt;&#x2F;li&gt;
+&lt;li&gt;The information has to be repeated because the signals are separate. They are independently instrumented and configured&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;historical-note&quot;&gt;Historical note&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#historical-note&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h4&gt;
+&lt;p&gt;Before the comments start flowing, I should note that the above would have been State of the Art around 2015, and there has been a &lt;a href=&quot;https:&#x2F;&#x2F;www.alibabacloud.com&#x2F;blog&#x2F;the-evolution-history-of-observable-data-standards-from-opentracing-and-opencensus-to-opentelemetry_599289&quot;&gt;lot of effort&lt;&#x2F;a&gt; since to be more general:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;The Python Jaeger client was been deprecated in favour of OpenTracing&lt;&#x2F;li&gt;
+&lt;li&gt;Prometheus released OpenMetrics to allow other libraries and services to interact with their data&lt;&#x2F;li&gt;
+&lt;li&gt;Google released their metrics and traces rival OpenCensus&lt;&#x2F;li&gt;
+&lt;li&gt;OpenTracing and OpenCensus combined to form OpenTelemetry&lt;&#x2F;li&gt;
+&lt;li&gt;OpenMetrics is still a separate but &lt;a href=&quot;https:&#x2F;&#x2F;signoz.io&#x2F;blog&#x2F;openmetrics-vs-opentelemetry&#x2F;&quot;&gt;experimentally compatible&lt;&#x2F;a&gt; project?
+I&#x27;m glossing over the details because they are historical, and while they improved things they didn&#x27;t solve the issue&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;instrumenting-with-opentelemetry&quot;&gt;Instrumenting with OpenTelemetry&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#instrumenting-with-opentelemetry&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;With the General Availability release of OpenTelemetry (track more subtle details &lt;a href=&quot;https:&#x2F;&#x2F;opentelemetry.io&#x2F;docs&#x2F;specs&#x2F;status&#x2F;&quot;&gt;here&lt;&#x2F;a&gt;), we can now take the same approach to all signals as was taken for logging. We&#x27;ll move to Rust, but the same is possible in lots of other languages, (and the client libraries are often more mature). A similar library might look like like this:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;use &lt;&#x2F;span&gt;&lt;span&gt;tracing::{error, event, info_span, instrument, span, Level};  
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;use &lt;&#x2F;span&gt;&lt;span&gt;opentelemetry_api::{global, KeyValue};  
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;use &lt;&#x2F;span&gt;&lt;span&gt;std::thread;  
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;use &lt;&#x2F;span&gt;&lt;span&gt;std::time::Duration;  
+&lt;&#x2F;span&gt;&lt;span&gt;  
+&lt;&#x2F;span&gt;&lt;span&gt;#[&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;instrument&lt;&#x2F;span&gt;&lt;span&gt;]  
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;pub fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;expensive_work&lt;&#x2F;span&gt;&lt;span&gt;() -&amp;gt; &amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;&amp;#39;static str &lt;&#x2F;span&gt;&lt;span&gt;{  
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; meter = global::meter(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;mylib&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;);  
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; counter_step_1 = meter.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;u64_counter&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;step_1&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;with_description&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Calls to expensive step 1&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;init&lt;&#x2F;span&gt;&lt;span&gt;();  
+&lt;&#x2F;span&gt;&lt;span&gt;    counter_step_1.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;add&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u64&lt;&#x2F;span&gt;&lt;span&gt;, &amp;amp;[]);  
+&lt;&#x2F;span&gt;&lt;span&gt;    span!(Level::&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;INFO&lt;&#x2F;span&gt;&lt;span&gt;, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;expensive_step_1&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)  
+&lt;&#x2F;span&gt;&lt;span&gt;        .&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;in_scope&lt;&#x2F;span&gt;&lt;span&gt;(|| thread::sleep(Duration::from_millis(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;25&lt;&#x2F;span&gt;&lt;span&gt;)));  
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; Short form of the span above  
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; counter_step_2 = meter.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;u64_counter&lt;&#x2F;span&gt;&lt;span&gt;(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;step_2&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;init&lt;&#x2F;span&gt;&lt;span&gt;();  
+&lt;&#x2F;span&gt;&lt;span&gt;    info_span!(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;expensive_step_2&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)  
+&lt;&#x2F;span&gt;&lt;span&gt;        .&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;in_scope&lt;&#x2F;span&gt;&lt;span&gt;(|| {  
+&lt;&#x2F;span&gt;&lt;span&gt;            thread::sleep(Duration::from_millis(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;25&lt;&#x2F;span&gt;&lt;span&gt;));  
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; pid = std::process::id();  
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;match&lt;&#x2F;span&gt;&lt;span&gt; pid % &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;8 &lt;&#x2F;span&gt;&lt;span&gt;{  
+&lt;&#x2F;span&gt;&lt;span&gt;                x &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;..=&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;3&lt;&#x2F;span&gt;&lt;span&gt;).&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;contains&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;x) =&amp;gt; {  
+&lt;&#x2F;span&gt;&lt;span&gt;                    event!(Level::&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;INFO&lt;&#x2F;span&gt;&lt;span&gt;, name = &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;success&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;, result = x);  
+&lt;&#x2F;span&gt;&lt;span&gt;                    counter_step_2.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;add&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;, [  
+&lt;&#x2F;span&gt;&lt;span&gt;                        KeyValue::new(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;result&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;success&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)  
+&lt;&#x2F;span&gt;&lt;span&gt;                    ].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;as_ref&lt;&#x2F;span&gt;&lt;span&gt;());  
+&lt;&#x2F;span&gt;&lt;span&gt;                    &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Service call succeeded&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;  
+&lt;&#x2F;span&gt;&lt;span&gt;                },  
+&lt;&#x2F;span&gt;&lt;span&gt;                x =&amp;gt; {  
+&lt;&#x2F;span&gt;&lt;span&gt;                    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; Shorthand for event!(tracing::Level::ERROR, &amp;quot;failure&amp;quot;, result=x);  
+&lt;&#x2F;span&gt;&lt;span&gt;                    error!(name = &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;failure&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;, result = x);  
+&lt;&#x2F;span&gt;&lt;span&gt;                    counter_step_2.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;add&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;, [  
+&lt;&#x2F;span&gt;&lt;span&gt;                        KeyValue::new(&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;result&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;, &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;failure&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;)  
+&lt;&#x2F;span&gt;&lt;span&gt;                    ].&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;as_ref&lt;&#x2F;span&gt;&lt;span&gt;());  
+&lt;&#x2F;span&gt;&lt;span&gt;                    &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#a3be8c;&quot;&gt;Service call failed&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;  
+&lt;&#x2F;span&gt;&lt;span&gt;                },  
+&lt;&#x2F;span&gt;&lt;span&gt;            }  
+&lt;&#x2F;span&gt;&lt;span&gt;        })  
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The combination of moving to Rust, and the nature of the OTel beast means this has added a chunk of extra code. However there are now several advantages:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;We&#x27;ve done away with logging entirely
+&lt;ul&gt;
+&lt;li&gt;A tracing event without any attributes is similar to emitting a log message - and there is a movement within rust to simply replace log calls to tracing calls. You&#x27;ll note that the TRACE, DEBUG, INFO, WARN, and ERROR levels match those available in the log crate, and there are various options for your downstream users to treat them as such, if they just want standard logging&lt;&#x2F;li&gt;
+&lt;li&gt;Bear in mind that in Rust, tracing isn&#x27;t OTel, but it can be configured downstream to act like it. If you just want to do one thing to tidy up your code, migrating &lt;code&gt;log -&amp;gt; tracing&lt;&#x2F;code&gt; and thinking in terms of structured logging is probably it&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;We can get better detail
+&lt;ul&gt;
+&lt;li&gt;Using events in conjunction with spans allows the context of that event to be captured. In our example we can tell that the failure occurred within the call to &lt;code&gt;expensive_step_2&lt;&#x2F;code&gt;. Obvious from our snippet of code, but it pushes that context out of the codebase, so it can be seen more easily in an ops plane&lt;&#x2F;li&gt;
+&lt;li&gt;Additionally imagine that call was made in a number of different places, you can easily filter the output to instances where it happened within &lt;code&gt;run_calculations_for_important_client()&lt;&#x2F;code&gt; perhaps&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;We can add instrumentation easily for our functions
+&lt;ul&gt;
+&lt;li&gt;While the manual work with the counters and spans was annoying, did you notice &lt;code&gt;#[instrument]&lt;&#x2F;code&gt; macro at the top? That opens and closes another span for us automatically. That macro &lt;em&gt;was&lt;&#x2F;em&gt; presumably fiddly boilerplate to get right for the implementer. But since there should now only be one way of instrumenting things, authors are incentivised to provide those utilities, and we can cheaply sprinkle them in our code&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;We get auto-instrumentation
+&lt;ul&gt;
+&lt;li&gt;Related to the above, the OTel vision is that the majority of your code should now be auto-instrumented. Most likely the external service call would be &lt;code&gt;reqwest&lt;&#x2F;code&gt;, &lt;code&gt;sqlx&lt;&#x2F;code&gt;, or similar. Library and framework authors do the hard work once, everyone else benefits&lt;&#x2F;li&gt;
+&lt;li&gt;Previously there were myriad extensions in Python just for tracing like &lt;code&gt;flask-jaeger&lt;&#x2F;code&gt;, &lt;code&gt;flask-zipkin&lt;&#x2F;code&gt;,  &lt;code&gt;flask-sleuth&lt;&#x2F;code&gt;, so many that PyPI disabled the ability to search with pip from the command line (maybe). Now by installing the OpenTelemetry extensions, or in some cases even without, you&#x27;ve got a good start on observability out of the box - just like the situation we got to with logging. Anything extra we add interacts with and complements that&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;pitfalls&quot;&gt;Pitfalls&lt;a class=&quot;anchor&quot; aria-hidden=&quot;true&quot; href=&quot;#pitfalls&quot; hidden=&quot;&quot;&gt;#&lt;&#x2F;a&gt;
+&lt;&#x2F;h1&gt;
+&lt;p&gt;It&#x27;s not all plain sailing:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Tracing async code needs &lt;a href=&quot;https:&#x2F;&#x2F;docs.rs&#x2F;tracing&#x2F;latest&#x2F;tracing&#x2F;struct.Span.html#in-asynchronous-code&quot;&gt;special care&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;It&#x27;s not as easy as logging to get right. With logs you&#x27;re just working with arbitrary text - typos and all. To correctly aggregate your data at a later stage with structured logging, you need to take care to name things sensibly - and there is a &lt;a href=&quot;https:&#x2F;&#x2F;opentelemetry.io&#x2F;docs&#x2F;specs&#x2F;otel&#x2F;common&#x2F;&quot;&gt;large section&lt;&#x2F;a&gt; of the OTel docs dedicated to that&lt;&#x2F;li&gt;
+&lt;li&gt;You need to set up exporters and other things to get the value out of the instrumentation. That we&#x27;ll deal with another time - but, spoiler alert: the app configuration is significantly harder than the library instrumentation - even just to print to stdout&lt;&#x2F;li&gt;
+&lt;li&gt;It&#x27;s a new standard, and while the APIs are now largely stable, common best practice and availability of helper methods are still evolving&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

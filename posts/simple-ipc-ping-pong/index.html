@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+<head>
+    
+    <meta charset="utf-8"> <meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>IPC in Rust - a Ping Pong Comparison</title>
+
+
+<meta name="keywords" content="rust, python">
+
+
+
+<meta name="description" content="">
+
+
+
+
+
+<link rel="canonical" href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;simple-ipc-ping-pong&#x2F;">
+
+
+<link rel="stylesheet" href="https://3tilley.github.io/css/includes/scroll-bar.css">
+<link rel="stylesheet" href="https://3tilley.github.io/css/styles.css">
+<link rel="stylesheet" href="https://3tilley.github.io/css/override.css">
+
+
+
+
+
+
+
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
+    </style>
+    
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
+
+            .list {
+                background: var(--theme);
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
+
+    </style>
+    
+</noscript>
+
+
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-W8MM0ES7PC"></script>
+<script>
+  window['ga-disable-G-W8MM0ES7PC'] = window.doNotTrack === "1" || navigator.doNotTrack === "1" || navigator.doNotTrack === "yes" || navigator.msDoNotTrack === "1";
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){window.dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-W8MM0ES7PC');
+</script>
+
+
+
+
+    
+</head>
+<body class="" id="top">
+    
+    
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;" accesskey="h" title="TheTraitModern (Alt + H)">
+                TheTraitModern
+            </a>
+            <div class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+                <ul class="lang-switch">
+                    <li></li>
+                </ul>
+            </div>
+        </div>
+        
+        <ul id="menu">
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;&#x2F;archive" title="Archive">
+                    <span>Archive</span>
+                    
+                </a>
+            </li>
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;&#x2F;tags" title="Tags">
+                    <span>Tags</span>
+                    
+                </a>
+            </li>
+            
+            
+            
+            <li>
+                <a href="https:&#x2F;&#x2F;getzola.com&#x2F;" title="Zola">
+                    <span>Zola</span>
+                    
+                    <svg fill="none" shape-rendering="geometricPrecision" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24" height="12" width="12">
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"></path>
+                        <path d="M15 3h6v6"></path>
+                        <path d="M10 14L21 3"></path>
+                    </svg>
+                    
+                </a>
+            </li>
+            
+        </ul>
+        
+    </nav>
+</header>
+
+    
+    <main class="main">
+        
+<article class="post-single">
+  <header class="post-header">
+      <div class="breadcrumbs">
+          <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;">Home</a>&nbsp;»&nbsp;
+          <a href="https://3tilley.github.io/posts/">Posts</a>&nbsp;»&nbsp;
+          <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;simple-ipc-ping-pong&#x2F;">IPC in Rust - a Ping Pong Comparison</a>
+      </div>
+      <h1 class="post-title">IPC in Rust - a Ping Pong Comparison</h1>
+      
+      
+      <div class="post-meta">
+      
+
+
+
+
+
+
+
+
+
+
+
+
+<span title="2024-06-12 00:00:00 +0000">2024-06-12</span>&nbsp;·&nbsp;20 min&nbsp;·&nbsp;
+
+      
+          &nbsp;|&nbsp;<a href="https:&#x2F;&#x2F;github.com&#x2F;3tilley&#x2F;3tilley.github.io&#x2F;tree&#x2F;master/content/posts&#x2F;2024-06-12-simple-IPC-Ping-Pong.md" rel="noopener noreferrer" target="_blank">Suggest Changes</a>
+
+      
+      </div>
+      
+  </header>
+
+  
+  
+
+<div class="toc">
+    <details  open>
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner">
+            <ul>
+                
+                <li>
+                    <a href="#the-problem" aria-label="The Problem">The Problem</a>
+                    
+                    <ul>
+                    
+                        <li>
+                            <a href="#a-note-on-timing" aria-label="A Note on Timing">A Note on Timing</a>
+                            
+                        </li>
+                    
+                    </ul>
+                    
+                </li>
+                
+                <li>
+                    <a href="#benchmarking" aria-label="Benchmarking">Benchmarking</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#approach-1-pipes" aria-label="Approach 1 - Pipes">Approach 1 - Pipes</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#approach-2-tcp" aria-label="Approach 2 - TCP">Approach 2 - TCP</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#approach-3-udp" aria-label="Approach 3 - UDP">Approach 3 - UDP</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#approach-4-shared-memory" aria-label="Approach 4 - Shared Memory">Approach 4 - Shared Memory</a>
+                    
+                </li>
+                
+                <li>
+                    <a href="#results" aria-label="Results">Results</a>
+                    
+                    <ul>
+                    
+                        <li>
+                            <a href="#system-calls" aria-label="System calls">System calls</a>
+                            
+                        </li>
+                    
+                    </ul>
+                    
+                </li>
+                
+                <li>
+                    <a href="#conclusion" aria-label="Conclusion">Conclusion</a>
+                    
+                </li>
+                
+            </ul>
+        </div>
+    </details>
+</div>
+
+
+  
+
+  
+  <div class="post-content">
+      <p>I wanted to explore different ways of communicating between different processes executing on the same machine, and doing so as fast as possible. We're focussing on high speed inter-process communication (IPC), but some of these approaches can be extended across a network. We'll do this exploration in Rust.</p>
+<p>A reminder that since these are independent processes, most approaches you'd take within-process are unavailable to us. Rather than communicating between threads, or between asynchronous routines, these are techniques to shared data between different programs. They might not even both be written in Rust.</p>
+<p>The code will mostly be snippets, but the full source is available <a href="https://github.com/3tilley/rust-experiments/tree/master/ipc">here</a>, with benchmark results at the end.</p>
+<h1 id="the-problem">The Problem<a class="anchor" aria-hidden="true" href="#the-problem" hidden="">#</a>
+</h1>
+<p>We want to send a message (&quot;ping&quot;) from one process to another, and when it's received reply with an acknowledgement (&quot;pong&quot;). This cycle gives us an opportunity to time how long it takes to round trip between two processes. Timing is complicated, and there is a note on it below but we'll run lots of cycles, and calculate average time from there.</p>
+<p>We'll set up all the experiments as similarly as possible, with a producer process sending a ping, and a consumer processes replying with a pong. Performance profiling can lead one down a deep rabbit hole, but hopefully this experiment is simple enough that we'll be able to largely isolate the effect of the communication. Though I don't doubt keen-eyed readers will highlight optimisations missed, or operations outside the communication that are not as computationally-free as I've assumed.</p>
+<p>Note that we're focussing on low-latency here, not high-throughput. Within High-Performance Computing they are related, but are focussed on different goals. As an example to illustrate the difference, imagine a piece of software that performs linear algebra tasks by outsourcing those computations to the GPU. For some problem sets (like training Neural Networks) the time taken to complete the training will be significantly faster on the GPU - the calculations performed per second (or throughput) will be much higher. However there is a cost to marshalling and shipping the data onto the GPU in the first place, and it will never be quicker to multiply two small matrices together like that.</p>
+<h2 id="a-note-on-timing">A Note on Timing<a class="anchor" aria-hidden="true" href="#a-note-on-timing" hidden="">#</a>
+</h2>
+<p>We tend to assume that computers keep precise, and synchronised clocks. And compared to humans, they largely do. However when trying to measure very quick operations, there are limits to this. For starters, I'm working on a PC with a 4GHz processor. In order to measure something in single cycles, that means I need a clock capable of 0.25ns time resolution - or the time taken for light to travel roughly 10cm. Electrical signals move significantly slower than this, so for a clock outside the processor, even the time taken to sample the timer will dwarf the time taken to perform a few cycles of calculation.</p>
+<p>Consider the clock attached to the coin battery on your motherboard. This allows the system to be disconnected from the mains, plugged back in and still know the current time. This is known as a Real Time Clock (RTC). These mostly run at 32.768 kHz (2^15 Hz), only giving them a theoretical resolution of 30 µs - or about a hundred thousand clock cycles. What's more they are often configured to produce time at a resolution much lower than that - clearly that clock isn't going to cut it.</p>
+<p>The traditional solution is to use a Time Stamp Counter or TSC. This is a processor register that keeps ticking up at the rate of the processor clock speed - so should offer sufficient resolution for our needs. Traditionally the x86 instruction RDTSC is used to read its value. However given the nature of modern CPUs with varying clockspeeds, hyperthreading, deep pipelines, and the fear of cache/timing attacks, it's more complicated than this. On Windows the Microsoft suggestion is to use the <code>QueryPerformanceCounter</code> function, and on Linux <code>clock_gettime(CLOCK_MONOTONIC)</code> - but note these are both system calls (more on those later). Their resolution is also hardware dependent, if you have a newer device (within 10 years) this may be an <a href="https://en.wikipedia.org/wiki/High_Precision_Event_Timer">HPET</a> , or it could be a modern incarnation of the TSC. Either way these benchmarks are going to yield different results on different hardware and different operating systems, even if the code ran similarly.</p>
+<p><strong>Post takeaway</strong> - timing short-duration events is difficult. If in doubt, run enough iterations of your event such that the total completed time is in milliseconds, and then whatever timing source your benchmarking suite relies on should lead to an accurate result.</p>
+<p>To learn about the pain of synchronising multiple clocks like this on a network, read or listen this incredible in-depth piece from Jane Street: https://signalsandthreads.com/clock-synchronization/</p>
+<h1 id="benchmarking">Benchmarking<a class="anchor" aria-hidden="true" href="#benchmarking" hidden="">#</a>
+</h1>
+<p>This was an opportunity for me to try out <a href="https://github.com/nvzqz/divan">Divan</a> for benchmarking. It's a <strong>comfy bench</strong>marking tool, with the goal of being more ergonomic than <a href="https://github.com/bheisler/criterion.rs">Criterion</a>.</p>
+<p>I'll save offering judgment yet as I haven't used it a whole lot, but it seems to do what I need it to do. For each approach we will:</p>
+<ol>
+<li>Create the consumer process, and wait for it to become available</li>
+<li>Prepare data and open connections in both processes, and wait for them to complete</li>
+<li>Start timing</li>
+<li>Run the ping / pong cycle a number of times</li>
+<li>Stop timer</li>
+<li>Get an average time per operation</li>
+</ol>
+<p>Fortunately <code>divan</code> gives the tools for that, and allows us to annotate the benches with how many operations were executed, and then produce averages based on that (with some caveats). An example benchmark is here:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>#[</span><span style="color:#bf616a;">divan</span><span>::</span><span style="color:#bf616a;">bench</span><span>]  
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">stdin_stdout</span><span>(</span><span style="color:#bf616a;">bencher</span><span>: Bencher) {  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> n = </span><span style="color:#d08770;">1000</span><span>;  
+</span><span>    </span><span style="color:#b48ead;">let mut</span><span> pipe_runner = ipc::pipes::PipeRunner::new(</span><span style="color:#d08770;">false</span><span>);  
+</span><span>    </span><span style="color:#b48ead;">let mut</span><span> return_buffer = pipe_runner.</span><span style="color:#96b5b4;">prepare</span><span>();  
+</span><span>    bencher  
+</span><span>        .</span><span style="color:#96b5b4;">counter</span><span>(divan::counter::ItemsCount::new(n))  
+</span><span>        .</span><span style="color:#96b5b4;">bench_local</span><span>(</span><span style="color:#b48ead;">move </span><span>|| {  
+</span><span>            pipe_runner.</span><span style="color:#96b5b4;">run_inner</span><span>(n, &amp;</span><span style="color:#b48ead;">mut</span><span> return_buffer)  
+</span><span>        });  
+</span><span>}
+</span></code></pre>
+<h1 id="approach-1-pipes">Approach 1 - Pipes<a class="anchor" aria-hidden="true" href="#approach-1-pipes" hidden="">#</a>
+</h1>
+<p>This is the first thing that comes to mind to connect processes on the same machine. Like <code>cat | grep</code> we'll just connect <code>stdout</code> of the producer to <code>stdin</code> of the consumer, and vice-versa. This will work on Windows, Linux, and presumably MacOS.</p>
+<p>The consumer process reads five bytes into an array from <code>stdin</code>, checks if they're equal to <code>ping</code> followed by a newline, and then responds appropriately. It'll also respond to <code>pong</code>.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">use </span><span>std::io::{stdin, stdout, Read, Write};  
+</span><span>  
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span>() {  
+</span><span>    </span><span style="color:#b48ead;">let mut</span><span> arr = [</span><span style="color:#d08770;">0</span><span style="color:#b48ead;">u8</span><span>, </span><span style="color:#d08770;">0</span><span>, </span><span style="color:#d08770;">0</span><span>, </span><span style="color:#d08770;">0</span><span>, </span><span style="color:#d08770;">0</span><span>];  
+</span><span>    </span><span style="color:#b48ead;">loop </span><span>{  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> read_result = </span><span style="color:#96b5b4;">stdin</span><span>().</span><span style="color:#96b5b4;">read_exact</span><span>(&amp;</span><span style="color:#b48ead;">mut</span><span> arr);  
+</span><span>        </span><span style="color:#b48ead;">if</span><span> read_result.</span><span style="color:#96b5b4;">is_ok</span><span>() {  
+</span><span>            </span><span style="color:#b48ead;">let</span><span> output = </span><span style="color:#b48ead;">match </span><span>&amp;arr {  
+</span><span>                </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span style="color:#96b5b4;">\n</span><span>&quot; =&gt; </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span style="color:#96b5b4;">\n</span><span>&quot;,  
+</span><span>                </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span style="color:#96b5b4;">\n</span><span>&quot; =&gt; </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span style="color:#96b5b4;">\n</span><span>&quot;,  
+</span><span>                _ =&gt; </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">Error</span><span>&quot;,  
+</span><span>            };  
+</span><span>            </span><span style="color:#96b5b4;">stdout</span><span>().</span><span style="color:#96b5b4;">write</span><span>(output).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>        }  
+</span><span>    }  
+</span><span>}
+</span></code></pre>
+<p>The producer process is a little more complex as it has to create and handle consumer first, but pushes out a <code>ping</code> , waits for a response, and then panics if it's not <code>pong</code>.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">run_inner</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">n</span><span>: </span><span style="color:#b48ead;">usize</span><span>, </span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">return_value</span><span>: &amp;</span><span style="color:#b48ead;">mut</span><span> [</span><span style="color:#b48ead;">u8</span><span>; 5]) {  
+</span><span>    </span><span style="color:#b48ead;">if let </span><span>Some(</span><span style="color:#b48ead;">ref mut</span><span> pipes_input) = </span><span style="color:#bf616a;">self</span><span>.pipe_proc.stdin {  
+</span><span>        </span><span style="color:#b48ead;">if let </span><span>Some(</span><span style="color:#b48ead;">ref mut</span><span> pipes_output) = </span><span style="color:#bf616a;">self</span><span>.pipe_proc.stdout {  
+</span><span>            </span><span style="color:#b48ead;">for </span><span>_ in </span><span style="color:#d08770;">0</span><span>..n {  
+</span><span>                pipes_input.</span><span style="color:#96b5b4;">write</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span style="color:#96b5b4;">\n</span><span>&quot;).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>                pipes_output.</span><span style="color:#96b5b4;">read_exact</span><span>(return_value).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>                </span><span style="color:#b48ead;">if</span><span> return_value != </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span style="color:#96b5b4;">\n</span><span>&quot; {  
+</span><span>                    panic!(&quot;</span><span style="color:#a3be8c;">Unexpected response</span><span>&quot;)  
+</span><span>                }  
+</span><span>            }  
+</span><span>        }  
+</span><span>    }  
+</span><span>}
+</span></code></pre>
+<p>Aside from some fiddly <code>ref mut</code> treatment for the pipes, this was pretty easy to write. With more complex data structures it might be annoying as some decision would have to be made on a delimiter between messages that wasn't just newlines, but it feels fairly extendable as well.</p>
+<h1 id="approach-2-tcp">Approach 2 - TCP<a class="anchor" aria-hidden="true" href="#approach-2-tcp" hidden="">#</a>
+</h1>
+<p>A natural approach would be to try a client and server connected via HTTP. This felt dangerously like benchmarking HTTP servers though, so instead I just went straight to TCP.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>...
+</span><span style="color:#65737e;">// Producer
+</span><span style="color:#b48ead;">impl </span><span>TcpRunner {  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">new</span><span>(</span><span style="color:#bf616a;">start_child</span><span>: </span><span style="color:#b48ead;">bool</span><span>, </span><span style="color:#bf616a;">tcp_nodelay</span><span>: </span><span style="color:#b48ead;">bool</span><span>) -&gt; TcpRunner {  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> listener = TcpListener::bind(&quot;</span><span style="color:#a3be8c;">127.0.0.1:0</span><span>&quot;).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> port = listener.</span><span style="color:#96b5b4;">local_addr</span><span>().</span><span style="color:#96b5b4;">unwrap</span><span>().</span><span style="color:#96b5b4;">port</span><span>();  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> exe = </span><span style="color:#b48ead;">crate</span><span>::executable_path(&quot;</span><span style="color:#a3be8c;">tcp_consumer</span><span>&quot;);  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> child_proc = </span><span style="color:#b48ead;">if</span><span> start_child {  
+</span><span>            Some(Command::new(exe).</span><span style="color:#96b5b4;">args</span><span>(&amp;[port.</span><span style="color:#96b5b4;">to_string</span><span>(), tcp_nodelay.</span><span style="color:#96b5b4;">to_string</span><span>()]).</span><span style="color:#96b5b4;">spawn</span><span>().</span><span style="color:#96b5b4;">unwrap</span><span>())  
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{  
+</span><span>            None  
+</span><span>        };  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> stream = TcpStreamWrapper::from_listener(listener, tcp_nodelay);  
+</span><span>        </span><span style="color:#b48ead;">Self </span><span>{ child_proc, wrapper: stream, tcp_nodelay }  
+</span><span>    }  
+</span><span>  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">run</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">n</span><span>: </span><span style="color:#b48ead;">usize</span><span>, </span><span style="color:#bf616a;">print</span><span>: </span><span style="color:#b48ead;">bool</span><span>) {  
+</span><span>        </span><span style="color:#65737e;">// TODO: Decide whether this can be done without copying from the socket  
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> buf = [</span><span style="color:#d08770;">0</span><span style="color:#b48ead;">u8</span><span>; </span><span style="color:#d08770;">4</span><span>];  
+</span><span>        </span><span style="color:#b48ead;">for </span><span>_ in </span><span style="color:#d08770;">0</span><span>..n {  
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.wrapper.stream.</span><span style="color:#96b5b4;">write</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.wrapper.stream.</span><span style="color:#96b5b4;">read_exact</span><span>(&amp;</span><span style="color:#b48ead;">mut</span><span> buf).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>            </span><span style="color:#b48ead;">if </span><span>!buf.</span><span style="color:#96b5b4;">eq</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;) {  
+</span><span>                panic!(&quot;</span><span style="color:#a3be8c;">Sent ping didn&#39;t get pong</span><span>&quot;)  
+</span><span>            }  
+</span><span>        }  
+</span><span>    }  
+</span><span>}
+</span><span>
+</span><span>...
+</span><span>
+</span><span style="color:#65737e;">// pipes_consumer.rs
+</span><span style="color:#65737e;">// Consumer
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span>() {  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> args: Vec&lt;String&gt; = std::env::args().</span><span style="color:#96b5b4;">collect</span><span>();  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> port = </span><span style="color:#b48ead;">u16</span><span>::from_str(&amp;args[</span><span style="color:#d08770;">1</span><span>]).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>    </span><span style="color:#b48ead;">let</span><span> nodelay = </span><span style="color:#b48ead;">bool</span><span>::from_str(&amp;args[</span><span style="color:#d08770;">2</span><span>]).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>    </span><span style="color:#b48ead;">let mut</span><span> wrapper = ipc::tcp::TcpStreamWrapper::from_port(port, nodelay);  
+</span><span>    </span><span style="color:#b48ead;">let mut</span><span> buf = [</span><span style="color:#d08770;">0</span><span style="color:#b48ead;">u8</span><span>; </span><span style="color:#d08770;">4</span><span>];  
+</span><span>    </span><span style="color:#b48ead;">while let </span><span>Ok(_) = wrapper.stream.</span><span style="color:#96b5b4;">read</span><span>(&amp;</span><span style="color:#b48ead;">mut</span><span> buf) {  
+</span><span>        </span><span style="color:#b48ead;">if</span><span> buf.</span><span style="color:#96b5b4;">eq</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;) {  
+</span><span>            wrapper.stream.</span><span style="color:#96b5b4;">write</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{  
+</span><span>            panic!(&quot;</span><span style="color:#a3be8c;">Received unknown value {:?}</span><span>&quot;, buf)  
+</span><span>        }  
+</span><span>    }  
+</span><span>}
+</span></code></pre>
+<p>All in all, this was fairly simple. Currently ping is written to the socket, copied off, and then checked. Pong is then written back. There is a comment in the code highlighting this, but it's not clear to me whether the socket can be read without copying it to a local buffer. Given it's only 5 bytes, and a system call would be required either way, this is likely negligible.</p>
+<p>The only other item of interest is that we can set TCP_NODELAY, which disables <a href="https://stackoverflow.com/questions/3761276/when-should-i-use-tcp-nodelay-and-when-tcp-cork">Nagle's algorithm</a>. Generally TCP waits briefly to build a packet large enough to be worth sending. Given that we are looking for fast transmission, it makes sense to disable this. Benchmarks with and without this setting are given. Spoiler - it didn't seem to change anything.</p>
+<p>Implementation wise, it was slightly more complex than the previous case. A port to connect to had to be passed to the consumer, a connection established, but not too difficult. I felt comfortable writing this code, and I also liked that it could be split across a network if needed. For complex usecases I'd probably miss some HTTP niceties, but for firing packets back and forth this felt flexible and maintainable.</p>
+<h1 id="approach-3-udp">Approach 3 - UDP<a class="anchor" aria-hidden="true" href="#approach-3-udp" hidden="">#</a>
+</h1>
+<p>Naturally, the next approach was to try UDP. UDP is traditionally used in these contexts for a &quot;fire and forget&quot; mechanism. Unlike TCP the protocol doesn't offer a way of recovering lost or out of order packets. This can be an advantage, because it keeps the connection from getting too &quot;chatty&quot; but if consistency is important those layers need to be implemented manually - either in or out of band. We'll sidestep this discussion because we're running both processes on the same machine and using the loopback adapter, but note that it's still possible to lose packets this way. If the socket buffer is filled with more data than can be read off of it in the reading loop, it will be unapologetically dropped. Perhaps a demonstration for another post.</p>
+<p>I'll just show the producer as the consumer is fairly similar.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">pub struct </span><span>UdpRunner {  
+</span><span>    </span><span style="color:#bf616a;">child_proc</span><span>: Option&lt;Child&gt;,  
+</span><span>    </span><span style="color:#bf616a;">wrapper</span><span>: UdpStreamWrapper,  
+</span><span>    </span><span style="color:#bf616a;">their_port</span><span>: </span><span style="color:#b48ead;">u16</span><span>,  
+</span><span>}  
+</span><span>  
+</span><span style="color:#b48ead;">impl </span><span>UdpRunner {  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">new</span><span>(</span><span style="color:#bf616a;">start_child</span><span>: </span><span style="color:#b48ead;">bool</span><span>) -&gt; UdpRunner {  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> wrapper = UdpStreamWrapper::new();  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> their_port = portpicker::pick_unused_port().</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> exe = </span><span style="color:#b48ead;">crate</span><span>::executable_path(&quot;</span><span style="color:#a3be8c;">udp_consumer</span><span>&quot;);  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> child_proc = </span><span style="color:#b48ead;">if</span><span> start_child {  
+</span><span>            Some(  
+</span><span>                Command::new(exe)  
+</span><span>                    .</span><span style="color:#96b5b4;">args</span><span>(&amp;[wrapper.our_port.</span><span style="color:#96b5b4;">to_string</span><span>(), their_port.</span><span style="color:#96b5b4;">to_string</span><span>()])  
+</span><span>                    .</span><span style="color:#96b5b4;">spawn</span><span>()  
+</span><span>                    .</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>            )  
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{  
+</span><span>            None  
+</span><span>        };  
+</span><span>        </span><span style="color:#65737e;">// Awkward sleep to make sure the child proc is ready  
+</span><span>        </span><span style="color:#96b5b4;">sleep</span><span>(Duration::from_millis(</span><span style="color:#d08770;">100</span><span>));  
+</span><span>        wrapper  
+</span><span>            .socket  
+</span><span>            .</span><span style="color:#96b5b4;">connect</span><span>(format!(&quot;</span><span style="color:#a3be8c;">127.0.0.1:</span><span style="color:#d08770;">{}</span><span>&quot;, their_port))  
+</span><span>            .</span><span style="color:#96b5b4;">expect</span><span>(&quot;</span><span style="color:#a3be8c;">Child process can&#39;t connect</span><span>&quot;);  
+</span><span>        </span><span style="color:#b48ead;">Self </span><span>{  
+</span><span>            child_proc,  
+</span><span>            wrapper,  
+</span><span>            their_port,  
+</span><span>        }  
+</span><span>    }  
+</span><span>  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">run</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">n</span><span>: </span><span style="color:#b48ead;">usize</span><span>, </span><span style="color:#bf616a;">print</span><span>: </span><span style="color:#b48ead;">bool</span><span>) {  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> start = Instant::now();  
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> buf = [</span><span style="color:#d08770;">0</span><span style="color:#b48ead;">u8</span><span>; </span><span style="color:#d08770;">4</span><span>];  
+</span><span>        </span><span style="color:#b48ead;">for </span><span>_ in </span><span style="color:#d08770;">0</span><span>..n {  
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.wrapper.socket.</span><span style="color:#96b5b4;">send</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.wrapper.socket.</span><span style="color:#96b5b4;">recv</span><span>(&amp;</span><span style="color:#b48ead;">mut</span><span> buf).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>            </span><span style="color:#b48ead;">if </span><span>!buf.</span><span style="color:#96b5b4;">eq</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;) {  
+</span><span>                panic!(&quot;</span><span style="color:#a3be8c;">Sent ping didn&#39;t get pong</span><span>&quot;)  
+</span><span>            }  
+</span><span>        }  
+</span><span>    }  
+</span><span>}
+</span></code></pre>
+<p>Overall this worked ok, but it was significantly more fiddly for a few reasons:</p>
+<ol>
+<li>As UDP is a broadcast protocol, it doesn't care whether anyone is listening. This means we have to spin up the consumer, connect to the producer, and confirm that they are connected. This could be done out of band, but I've just hacked it by sleeping for a period that seems long enough for the consumer to wake up and be prepared to receive instructions</li>
+<li>The API was similar to the TCP API, but meant different things. Specifically the <code>connect</code> method doesn't guarantee any connection has been made, just that the program had bound itself to a remote address that may or may not subsequently fail, or just pump data into the ether. It takes an array of address like the TCP connect method, but it has no meaningful way of deciding whether an address is useful or not (as it doesn't get a handshake) so just takes the first one and binds to it. All of this is in the <a href="https://doc.rust-lang.org/std/net/struct.UdpSocket.html#method.connect">documentation</a> but it's not ergonomic. Maybe <code>bind</code> would be a better name, although that does have a specific meaning that may not be appropriate</li>
+</ol>
+<p>These UDP downsides are well known, and it's used where they don't matter as much, or the asynchronous nature is useful. It's also possible to attach multiple listeners, which isn't possible with TCP. One can see where this might be useful, and why UDP is ubiquitous in usecases like online gaming.</p>
+<h1 id="approach-4-shared-memory">Approach 4 - Shared Memory<a class="anchor" aria-hidden="true" href="#approach-4-shared-memory" hidden="">#</a>
+</h1>
+<p>Shared memory is a known rapid way of sharing data between processes. One process allocates a block of memory, and passes that handle to another process. Each process is then free to read from or write to that block of memory independently. If your first instinct is to fear synchronisation and race conditions, you'd be absolutely correct. What's worse is that out of the box, Rust doesn't help us here, despite usually being very helpful with that kind of thing. We're on our own, and it's going to be <code>unsafe</code>.</p>
+<p>First of all we'll write the code that will execute in both the producer and consumer to create (or take) a handle to some shared memory, and then lay that out as the producer lock, the consumer lock, and a four byte buffer for us to exchange data.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#65737e;">// Shared memory layout
+</span><span style="color:#65737e;">//|    0    |    1    |    2    |    3    |    4    |    5    |    6    |    7    |
+</span><span style="color:#65737e;">//|   producer lock   |   consumer lock   |      data buffer (ping or pong)       |
+</span><span style="color:#b48ead;">pub struct </span><span>ShmemWrapper {  
+</span><span>    </span><span style="color:#b48ead;">pub </span><span style="color:#bf616a;">shmem</span><span>: Shmem,  
+</span><span>    </span><span style="color:#b48ead;">pub </span><span style="color:#bf616a;">owner</span><span>: </span><span style="color:#b48ead;">bool</span><span>,  
+</span><span>    </span><span style="color:#b48ead;">pub </span><span style="color:#bf616a;">our_event</span><span>: Box&lt;dyn EventImpl&gt;,  
+</span><span>    </span><span style="color:#b48ead;">pub </span><span style="color:#bf616a;">their_event</span><span>: Box&lt;dyn EventImpl&gt;,  
+</span><span>    </span><span style="color:#b48ead;">pub </span><span style="color:#bf616a;">data_start</span><span>: </span><span style="color:#b48ead;">usize</span><span>,  
+</span><span>}  
+</span><span>  
+</span><span style="color:#b48ead;">impl </span><span>ShmemWrapper {  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">new</span><span>(</span><span style="color:#bf616a;">handle</span><span>: Option&lt;String&gt;) -&gt; ShmemWrapper {  
+</span><span>        </span><span style="color:#b48ead;">let</span><span> owner = handle.</span><span style="color:#96b5b4;">is_none</span><span>();  
+</span><span>        </span><span style="color:#65737e;">// If we&#39;ve been given a memory handle, attach it, if not, create one  
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> shmem = </span><span style="color:#b48ead;">match</span><span> handle {  
+</span><span>            None =&gt; </span><span style="color:#96b5b4;">shmem_conf</span><span>().</span><span style="color:#96b5b4;">create</span><span>().</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>            Some(h) =&gt; </span><span style="color:#96b5b4;">shmem_conf</span><span>()  
+</span><span>                .</span><span style="color:#96b5b4;">os_id</span><span>(&amp;h)  
+</span><span>                .</span><span style="color:#96b5b4;">open</span><span>()  
+</span><span>                .</span><span style="color:#96b5b4;">expect</span><span>(&amp;format!(&quot;</span><span style="color:#a3be8c;">Unable to open the shared memory at </span><span style="color:#d08770;">{}</span><span>&quot;, h)),  
+</span><span>        };  
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> bytes = </span><span style="color:#b48ead;">unsafe </span><span>{ shmem.</span><span style="color:#96b5b4;">as_slice_mut</span><span>() };  
+</span><span>        </span><span style="color:#65737e;">// The two events are locks - one for each side. Each side activates the lock while it&#39;s  
+</span><span>        </span><span style="color:#65737e;">// writing, and then unlocks when the data can be read
+</span><span>        </span><span style="color:#b48ead;">let </span><span>((our_event, lock_bytes_ours), (their_event, lock_bytes_theirs)) = </span><span style="color:#b48ead;">unsafe </span><span>{  
+</span><span>            </span><span style="color:#b48ead;">if</span><span> owner {  
+</span><span>                (  
+</span><span>                    BusyEvent::new(bytes.</span><span style="color:#96b5b4;">get_mut</span><span>(</span><span style="color:#d08770;">0</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>(), </span><span style="color:#d08770;">true</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>                    BusyEvent::new(bytes.</span><span style="color:#96b5b4;">get_mut</span><span>(</span><span style="color:#d08770;">2</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>(), </span><span style="color:#d08770;">true</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>                )  
+</span><span>            } </span><span style="color:#b48ead;">else </span><span>{  
+</span><span>                (
+</span><span>	                </span><span style="color:#65737e;">// If we&#39;re not the owner, the events have been created already  
+</span><span>                    BusyEvent::from_existing(bytes.</span><span style="color:#96b5b4;">get_mut</span><span>(</span><span style="color:#d08770;">2</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>()).</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>                    BusyEvent::from_existing(bytes.</span><span style="color:#96b5b4;">get_mut</span><span>(</span><span style="color:#d08770;">0</span><span>).</span><span style="color:#96b5b4;">unwrap</span><span>()).</span><span style="color:#96b5b4;">unwrap</span><span>(),  
+</span><span>                )  
+</span><span>            }  
+</span><span>        };  
+</span><span>        </span><span style="color:#65737e;">// Confirm that we&#39;ve correctly indexed two bytes for each lock  
+</span><span>        assert!(lock_bytes_ours &lt;= </span><span style="color:#d08770;">2</span><span>);  
+</span><span>        assert!(lock_bytes_theirs &lt;= </span><span style="color:#d08770;">2</span><span>);  
+</span><span>        </span><span style="color:#b48ead;">if</span><span> owner {  
+</span><span>            our_event.</span><span style="color:#96b5b4;">set</span><span>(EventState::Clear).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>            their_event.</span><span style="color:#96b5b4;">set</span><span>(EventState::Clear).</span><span style="color:#96b5b4;">unwrap</span><span>();  
+</span><span>        }  
+</span><span>        ShmemWrapper {  
+</span><span>            shmem,  
+</span><span>            owner,  
+</span><span>            our_event,  
+</span><span>            their_event,  
+</span><span>            data_start: </span><span style="color:#d08770;">4</span><span>,  
+</span><span>        }  
+</span><span>    }  
+</span><span>  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">signal_start</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) {  
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.our_event.</span><span style="color:#96b5b4;">set</span><span>(EventState::Clear).</span><span style="color:#96b5b4;">unwrap</span><span>()  
+</span><span>    }  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">signal_finished</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) {  
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.our_event.</span><span style="color:#96b5b4;">set</span><span>(EventState::Signaled).</span><span style="color:#96b5b4;">unwrap</span><span>()  
+</span><span>    }  
+</span><span>  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">write</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">data</span><span>: &amp;[</span><span style="color:#b48ead;">u8</span><span>; 4]) {  
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> bytes = </span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#bf616a;">self</span><span>.shmem.</span><span style="color:#96b5b4;">as_slice_mut</span><span>() };  
+</span><span>  
+</span><span>        </span><span style="color:#b48ead;">for</span><span> i in </span><span style="color:#d08770;">0</span><span>..data.</span><span style="color:#96b5b4;">len</span><span>() {  
+</span><span>            bytes[i + </span><span style="color:#bf616a;">self</span><span>.data_start] = data[i];  
+</span><span>        }  
+</span><span>    }  
+</span><span>  
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">read</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>) -&gt; &amp;[</span><span style="color:#b48ead;">u8</span><span>] {  
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ &amp;</span><span style="color:#bf616a;">self</span><span>.shmem.</span><span style="color:#96b5b4;">as_slice</span><span>()[</span><span style="color:#bf616a;">self</span><span>.data_start..</span><span style="color:#bf616a;">self</span><span>.data_start + </span><span style="color:#d08770;">4</span><span>] }  
+</span><span>    }  
+</span><span>}
+</span></code></pre>
+<p>With these structures in place, we simply lock, write, unlock, and then read when we're allowed to.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">run</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">n</span><span>: </span><span style="color:#b48ead;">usize</span><span>, </span><span style="color:#bf616a;">print</span><span>: </span><span style="color:#b48ead;">bool</span><span>) { 
+</span><span>	</span><span style="color:#b48ead;">for </span><span>_ in </span><span style="color:#d08770;">0</span><span>..n {  
+</span><span>	    </span><span style="color:#65737e;">// Activate our lock in preparation for writing  
+</span><span>	    </span><span style="color:#bf616a;">self</span><span>.wrapper.</span><span style="color:#96b5b4;">signal_start</span><span>();  
+</span><span>	    </span><span style="color:#bf616a;">self</span><span>.wrapper.</span><span style="color:#96b5b4;">write</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;);  
+</span><span>	    </span><span style="color:#65737e;">// Unlock after writing  
+</span><span>	    </span><span style="color:#bf616a;">self</span><span>.wrapper.</span><span style="color:#96b5b4;">signal_finished</span><span>();  
+</span><span>	        </span><span style="color:#65737e;">// Wait for their lock to be released so we can read  
+</span><span>	    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">self</span><span>.wrapper.their_event.</span><span style="color:#96b5b4;">wait</span><span>(Timeout::Infinite).</span><span style="color:#96b5b4;">is_ok</span><span>() {  
+</span><span>	        </span><span style="color:#b48ead;">let str </span><span>= </span><span style="color:#bf616a;">self</span><span>.wrapper.</span><span style="color:#96b5b4;">read</span><span>();  
+</span><span>	        </span><span style="color:#b48ead;">if str </span><span>!= </span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#a3be8c;">pong</span><span>&quot; {  
+</span><span>	            panic!(&quot;</span><span style="color:#a3be8c;">Sent ping didn&#39;t get pong</span><span>&quot;)  
+</span><span>	        }  
+</span><span>	    }  
+</span><span>	} 
+</span><span>}
+</span></code></pre>
+<p>This code was horrible to write, and took some time to get right. I'm almost certain there are still bugs in there. It was complicated because:</p>
+<ul>
+<li>We have to do all of our own synchronisation without much help. In some situations, you can imagine using a queue or messaging system to communicate out of band between the processes, letting them know when it's safe to read or write. Given our messages are so small though, this would kill all the performance we've gone to the effort of achieving</li>
+<li>It's very low level. We have to marshal the bytes ourselves, and use a lot of unsafe to do so. This also exposes us to changes in the layout of structs that would lead to hard-to-find bugs</li>
+<li>I came across several bugs. On the Windows implementation of the most featureful crate there is a minimum page size <a href="https://github.com/elast0ny/shared_memory/issues/107">bug</a> when allocating memory pages</li>
+<li>It's not clear whether underlying memory can be easily resized. For our purposes this isn't a problem given we only have 8 bytes, but you can imagine this would quite quickly become an issue</li>
+</ul>
+<p>To be honest, unless I was absolutely sure I needed all of the shared memory performance, I wouldn't want to use code like this in Production. Other languages have shared memory frameworks to make things like this easier, but I wasn't able to find anything in Rust when I looked.</p>
+<h1 id="results">Results<a class="anchor" aria-hidden="true" href="#results" hidden="">#</a>
+</h1>
+<p>I've added results for Windows and Linux, but take these with a significant grain of salt as they are different machines. It's probably fair to compare them within platform though.</p>
+<table><thead><tr><th>Platform</th><th>Approach</th><th>Time per Operation (µs)</th><th>Ops per Second</th><th>Time Comparison to Shared Memory</th></tr></thead><tbody>
+<tr><td>Linux</td><td>1 - stdin_stdout</td><td>4.802</td><td>208k</td><td>27.7x</td></tr>
+<tr><td>Linux</td><td>2 - tcp_nodelay</td><td>10.930</td><td>92k</td><td>63.1x</td></tr>
+<tr><td>Linux</td><td>2 - tcp_yesdelay</td><td>11.190</td><td>89k</td><td>64.6x</td></tr>
+<tr><td>Linux</td><td>3 - udp</td><td>9.120</td><td>110k</td><td>52.6x</td></tr>
+<tr><td>Linux</td><td>4 - shared_memory</td><td>0.173</td><td>5770k</td><td>1.0x</td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>Windows</td><td>1 - stdin_stdout</td><td>28.450</td><td>35k</td><td>150.2x</td></tr>
+<tr><td>Windows</td><td>2 - tcp_nodelay</td><td>39.390</td><td>25k</td><td>208.0x</td></tr>
+<tr><td>Windows</td><td>2 - tcp_yesdelay</td><td>39.360</td><td>25k</td><td>207.8x</td></tr>
+<tr><td>Windows</td><td>3 - udp</td><td>41.700</td><td>24k</td><td>220.2x</td></tr>
+<tr><td>Windows</td><td>4 - shared_memory</td><td>0.189</td><td>5280k</td><td>1.0x</td></tr>
+</tbody></table>
+<p><img src="../ipc-results-graph.png" alt="results" /></p>
+<p>The time per operation is similar for most of the approaches, apart from using shared memory. With shared memory we can perform a ping-pong in under 200ns, or around 1000 processor cycles. I have to admit, I still found this a little disappointing. Moving a few bytes around should be faster than that, but I'm going to resist digging too deep yet. Preparing an environment with core-pinning and the correct thread priority is tricky, and given we have to do this with two concurrently running processes, it's even more difficult. Consider too that with hyper-threaded cores, should these processes run on different physical cores, or different logical cores? Do I have to disable Spectre/Meltdown type mitigations? Which memory cache level can we share? Having sunk a lot of hours similar situations before, I'm going to leave the log unflipped for now.</p>
+<h2 id="system-calls">System calls<a class="anchor" aria-hidden="true" href="#system-calls" hidden="">#</a>
+</h2>
+<p>But why are all the other methods so slow - and not only that, but so similarly slow? Well Linux gives us the easiest tool to see what's happening <a href="https://man7.org/linux/man-pages/man1/strace.1.html">strace</a>. <code>strace</code> allows us to run a command and see what system calls are made by that command. We can test this with the tcp runner, with 10 cycles of ping-pong. It generates a large amount of results, especially since I'm running this through <code>cargo</code>, but we can trim it down and see that in the heart of the execution there are system calls. Given I've only attached this to the producer process, and we can see that there are two systems calls per cycle (a read and a write), so for the whole cycle we require four system calls.</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> strace</span><span style="color:#bf616a;"> -r</span><span> cargo run</span><span style="color:#bf616a;"> --release</span><span> -- -n 10 -m tcp
+</span><span style="color:#bf616a;">...
+</span><span>    </span><span style="color:#bf616a;">0.000694</span><span> accept4(3, {sa_family=AF_INET, sin_port=htons(33404), sin_addr=inet_addr(&quot;</span><span style="color:#a3be8c;">127.0.0.1</span><span>&quot;)}, </span><span style="color:#b48ead;">[</span><span>128 =&gt; 16</span><span style="color:#b48ead;">]</span><span>, SOCK_CLOEXEC) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000939</span><span> setsockopt(4, SOL_TCP, TCP_NODELAY, </span><span style="color:#b48ead;">[</span><span>1</span><span style="color:#b48ead;">]</span><span>, 4) = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">0.000866</span><span> close(3)                  = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">0.006059</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000495</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000125</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000143</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000040</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000131</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000113</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000130</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000133</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000136</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000112</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000130</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000112</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000129</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000112</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000129</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000634</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000169</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000286</span><span> sendto(4, &quot;</span><span style="color:#a3be8c;">ping</span><span>&quot;, 4, MSG_NOSIGNAL, NULL, 0) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000227</span><span> recvfrom(4, &quot;</span><span style="color:#a3be8c;">pong</span><span>&quot;, 4, 0, NULL, NULL) = </span><span style="color:#bf616a;">4
+</span><span>     </span><span style="color:#bf616a;">0.000174</span><span> write(1, &quot;</span><span style="color:#a3be8c;">10 cycles completed in 3ms 669us</span><span>&quot;..., 4010 cycles completed in 3ms 669us 247ns 
+</span><span>) = </span><span style="color:#bf616a;">40
+</span><span>     </span><span style="color:#bf616a;">0.000166</span><span> write(1, &quot;</span><span style="color:#a3be8c;">2725.5383 per second\n</span><span>&quot;, 212725.5383 per second
+</span><span>
+</span><span style="color:#bf616a;">...
+</span><span>
+</span></code></pre>
+<p>How expensive are system calls? Well I've used <code>strace -r</code> to show times per call, but given previous discussions about how calling a timer can affect times (it adds at least one syscall per line) I won't take those numbers as ironclad. Especially <code>strace</code> is pausing and unpausing the process. Roughly roughly speaking though we're looking at least a few microseconds per read or write. Four of those, and you can see why tcp struggles to do better than 10µs per operation. This is similar for all of the other approaches.</p>
+<p>System calls on Linux are complex, and there are various mitigations, but having to wipe registers, validate, drop down into the kernel ring, get the output, and then undo those steps takes time. So if you really care about microseconds, try and avoid them in your hot loops.</p>
+<p>For the shared memory approach we can see that after the mmap to create the block of shared memory, there are no calls in our loop, so we don't pay that cost.</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> strace</span><span style="color:#bf616a;"> -r</span><span>  ./target/release/ipc</span><span style="color:#bf616a;"> -n</span><span> 10</span><span style="color:#bf616a;"> -m</span><span> shmem
+</span><span style="color:#bf616a;">...
+</span><span>    </span><span style="color:#bf616a;">0.000215</span><span> mmap(NULL, 8, PROT_READ|</span><span style="color:#bf616a;">PROT_WRITE,</span><span> MAP_SHARED, 3, 0) = </span><span style="color:#bf616a;">0x7f81dac8b000
+</span><span>     </span><span style="color:#bf616a;">0.000091</span><span> mmap(NULL, 36864, PROT_READ|</span><span style="color:#bf616a;">PROT_WRITE,</span><span> MAP_PRIVATE|</span><span style="color:#bf616a;">MAP_ANONYMOUS</span><span>|</span><span style="color:#bf616a;">MAP_STACK, -1</span><span>, 0) = </span><span style="color:#bf616a;">0x7f81dac46000
+</span><span>     </span><span style="color:#bf616a;">0.000051</span><span> rt_sigprocmask(SIG_BLOCK, </span><span style="color:#bf616a;">~</span><span style="color:#b48ead;">[]</span><span>, </span><span style="color:#b48ead;">[]</span><span>, 8) = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">0.000140</span><span> clone3({flags=CLONE_VM|CLONE_VFORK, exit_signal=SIGCHLD, stack=0x7f81dac46000, stack_size=0x9000}, 88) = </span><span style="color:#bf616a;">70905
+</span><span>     </span><span style="color:#bf616a;">0.000653</span><span> munmap(0x7f81dac46000, 36864) = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">0.000066</span><span> rt_sigprocmask(SIG_SETMASK, </span><span style="color:#b48ead;">[]</span><span>, NULL, 8) = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">0.000058</span><span> clock_nanosleep(CLOCK_REALTIME, 0, {tv_sec=1, tv_nsec=0}, 0x7ffe52d29560) = </span><span style="color:#bf616a;">0
+</span><span>     </span><span style="color:#bf616a;">1.576578</span><span> write(1, &quot;</span><span style="color:#a3be8c;">10 cycles completed in 521us 91n</span><span>&quot;..., 3510 cycles completed in 521us 91ns
+</span><span style="color:#bf616a;">...
+</span></code></pre>
+<h1 id="conclusion">Conclusion<a class="anchor" aria-hidden="true" href="#conclusion" hidden="">#</a>
+</h1>
+<p>I was surprised at how similarly most things performed. I did a cursory investigation into Linux-specific approaches like dbus and Unix Domain Sockets, but they seemed to be in the same ballpark as the non-shared memory approaches. The only other thing to try would be memory-mapped files, but I thought I'd save that for when I wanted to try something similar with larger blocks of data.</p>
+<p>If I had to do this in Production, for the majority of workloads I'd probably still use an HTTP / TCP connection. It's portable, reliable on message failure, and I could split it across machines if needs be. However for the cases where latency really matters, the maintenance overhead of using shared memory is worth it.</p>
+<p>For anyone who wants a deeper dive, or to offer critiques and improvements, the code is available <a href="https://github.com/3tilley/rust-experiments/tree/master/ipc">here</a>.</p>
+
+  </div>
+  
+
+  <footer class="post-footer">
+      
+      <ul class="post-tags">
+          
+          
+          <li><a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;tags&#x2F;rust&#x2F;">Rust</a></li>
+          
+          
+          <li><a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;tags&#x2F;low-latency&#x2F;">Low-latency</a></li>
+          
+      </ul>
+      
+
+    
+    
+
+
+<nav class="paginav">
+    
+    <a class="prev" href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;posts&#x2F;illberts-otel-part-1-instrumentation&#x2F;">
+        <span class="title">« Prev</span>
+        <br>
+        <span>Illbert&#x27;s OTel in Rust - Part 1 - Instrumentation</span>
+    </a>
+    
+    
+</nav>
+
+
+    
+    
+  </footer>
+
+</article>
+
+    </main>
+    
+    <footer class="footer">
+    
+    <span>&copy; 2024 <a href="https:&#x2F;&#x2F;3tilley.github.io&#x2F;"></a></span>
+    
+    <span>
+        Powered by
+        <a href="https://www.getzola.org/" rel="noopener noreferrer" target="_blank">Zola</a> &
+        <a href="https://github.com/cydave/zola-theme-papermod" rel="noopener" target="_blank">PaperMod</a>
+    </span>
+</footer>
+
+
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
+
+
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
+
+</script>
+
+
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
+
+</script>
+
+
+
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
+
+</script>
+
+
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
+
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerText = 'copy';
+        function copyingDone() {
+            copybutton.innerText = 'copied!';
+            setTimeout(() => {
+                copybutton.innerText = 'copy';
+            }, 2000);
+        }
+
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
+
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
+
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            // td containing LineNos
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            // table containing LineNos and code
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            // code blocks not having highlight as parent class
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
+
+
+    
+</body>
+</html>
