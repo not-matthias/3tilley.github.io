@@ -5,26 +5,27 @@ title = "IPC in Rust - a Ping Pong Comparison"
 tags = ["Rust", "Low-latency"]
 +++
 
-I wanted to explore different ways of communicating between different processes executing on the same machine as fast as possible. Some of these approaches will work across a network, but given that the focus is communicating at speed, for now we will focus on inter-process communication - or IPC. We'll do this using Rust.
+I wanted to explore different ways of communicating between different processes executing on the same machine, and doing so as fast as possible. We're focussing on high speed inter-process communication (IPC), but some of these approaches can be extended across a network. We'll do this exploration in Rust.
 
 A reminder that since these are independent processes, most approaches you'd take within-process are unavailable to us. Rather than communicating between threads, or between asynchronous routines, these are techniques to shared data between different programs. They might not even both be written in Rust.
 
 The code will mostly be snippets, but the full source is available [here](https://github.com/3tilley/rust-experiments/tree/master/ipc), with benchmark results at the end.
+
 # The Problem
 
-We want to send a message ("ping") from one process to another, and when it's received reply with an acknowledgement ("pong"). This cycle gives us an opportunity to time how long it takes to round trip between two processes. Timing is complicated, and there is a note on it below but we'll use lots of cycles, and calculate average time from there.
+We want to send a message ("ping") from one process to another, and when it's received reply with an acknowledgement ("pong"). This cycle gives us an opportunity to time how long it takes to round trip between two processes. Timing is complicated, and there is a note on it below but we'll run lots of cycles, and calculate average time from there.
 
-We'll set up all the experiments as similarly as possible, with a producer process sending a ping, and a consumer processes replying with a pong. Performance profiling can lead one down a deep rabbithole, but hopefully this experiment is simple enough that we'll be able to largely isolate the effect of the communication - though no doubt keen-eyed readers will highlight optimisations missed, or operations outside the communication that are not as computationally-free as I've assumed.
+We'll set up all the experiments as similarly as possible, with a producer process sending a ping, and a consumer processes replying with a pong. Performance profiling can lead one down a deep rabbit hole, but hopefully this experiment is simple enough that we'll be able to largely isolate the effect of the communication. Though I don't doubt keen-eyed readers will highlight optimisations missed, or operations outside the communication that are not as computationally-free as I've assumed.
 
 Note that we're focussing on low-latency here, not high-throughput. Within High-Performance Computing they are related, but are focussed on different goals. As an example to illustrate the difference, imagine a piece of software that performs linear algebra tasks by outsourcing those computations to the GPU. For some problem sets (like training Neural Networks) the time taken to complete the training will be significantly faster on the GPU - the calculations performed per second (or throughput) will be much higher. However there is a cost to marshalling and shipping the data onto the GPU in the first place, and it will never be quicker to multiply two small matrices together like that.
 
 ## A Note on Timing
 
-We tend to assume that computers keep precise, and synchronised clocks. And compared to humans, they largely do. However when trying to measure very quick operations, there are limits to this. For starters, I'm working on a PC with a 4GHz processor. In order to measure something in single cycles, that means I need a clock capable of 0.25ns time resolution - or the time taken for light to travel roughly 10cm. Electrical signals move significantly slower than this, so for a clock outside the processor, even the time taken to start and stop the timer will dwarf the time taken to perform a few cycles of calculation.
+We tend to assume that computers keep precise, and synchronised clocks. And compared to humans, they largely do. However when trying to measure very quick operations, there are limits to this. For starters, I'm working on a PC with a 4GHz processor. In order to measure something in single cycles, that means I need a clock capable of 0.25ns time resolution - or the time taken for light to travel roughly 10cm. Electrical signals move significantly slower than this, so for a clock outside the processor, even the time taken to sample the timer will dwarf the time taken to perform a few cycles of calculation.
 
-Consider the clock attached to the coin battery on your motherboard, which allows the system to be disconnected from the mains, plugged back in and know the current time. This is known as a Real Time Clock (RTC). These mostly run at 32.768 kHz (2^15 Hz), only giving them a theoretical resolution of 0.3 µs - or about a thousand clock cycles. What's more they are often configured to produce time at a resolution much lower than that.
+Consider the clock attached to the coin battery on your motherboard. This allows the system to be disconnected from the mains, plugged back in and still know the current time. This is known as a Real Time Clock (RTC). These mostly run at 32.768 kHz (2^15 Hz), only giving them a theoretical resolution of 30 µs - or about a hundred thousand clock cycles. What's more they are often configured to produce time at a resolution much lower than that - clearly that clock isn't going to cut it.
 
-The traditional solution is to use a Time Stamp Counter or TSC. This is a processor register that keeps ticking up at the rate of the processor clock speed - so should offer sufficient resolution for our needs. Traditionally the x86 instruction RDTSC is used to read its value. However given the nature of modern CPUs with varying clockspeeds, hyperthreading, deep pipelines, and the fear of cache/timing attacks, it's more complicated than this. On Windows the suggestion is to use the `QueryPerformanceCounter` function, and on Linux `clock_gettime(CLOCK_MONOTONIC)` - but note these are both system calls (more on those later). Their resolution is also hardware dependent, if you have a newer device (within 10 years) this may be an [HPET](https://en.wikipedia.org/wiki/High_Precision_Event_Timer) , or a modern incarnation of the TSC. Either way these benchmarks are highly-unportable.
+The traditional solution is to use a Time Stamp Counter or TSC. This is a processor register that keeps ticking up at the rate of the processor clock speed - so should offer sufficient resolution for our needs. Traditionally the x86 instruction RDTSC is used to read its value. However given the nature of modern CPUs with varying clockspeeds, hyperthreading, deep pipelines, and the fear of cache/timing attacks, it's more complicated than this. On Windows the Microsoft suggestion is to use the `QueryPerformanceCounter` function, and on Linux `clock_gettime(CLOCK_MONOTONIC)` - but note these are both system calls (more on those later). Their resolution is also hardware dependent, if you have a newer device (within 10 years) this may be an [HPET](https://en.wikipedia.org/wiki/High_Precision_Event_Timer) , or it could be a modern incarnation of the TSC. Either way these benchmarks are going to yield different results on different hardware and different operating systems, even if the code ran similarly.
 
 **Post takeaway** - timing short-duration events is difficult. If in doubt, run enough iterations of your event such that the total completed time is in milliseconds, and then whatever timing source your benchmarking suite relies on should lead to an accurate result.
 
@@ -39,14 +40,15 @@ I'll save offering judgment yet as I haven't used it a whole lot, but it seems t
 2. Prepare data and open connections in both processes, and wait for them to complete
 3. Start timing
 4. Run the ping / pong cycle a number of times
-5. Get an average time per operation
+5. Stop timer
+6. Get an average time per operation
 
 Fortunately `divan` gives the tools for that, and allows us to annotate the benches with how many operations were executed, and then produce averages based on that (with some caveats). An example benchmark is here:
 
 ```rust
 #[divan::bench]  
 fn stdin_stdout(bencher: Bencher) {  
-    let n = N;  
+    let n = 1000;  
     let mut pipe_runner = ipc::pipes::PipeRunner::new(false);  
     let mut return_buffer = pipe_runner.prepare();  
     bencher  
@@ -58,7 +60,7 @@ fn stdin_stdout(bencher: Bencher) {
 ```
 # Approach 1 - Pipes
 
-This is probably the first thing that would come to mind to connect processes on the same machine. Like `cat | grep` we'll just connect `stdout` of the producer to `stdin` of the consumer, and vice-versa. This will work on Windows, Linux, and presumably MacOS.
+This is the first thing that comes to mind to connect processes on the same machine. Like `cat | grep` we'll just connect `stdout` of the producer to `stdin` of the consumer, and vice-versa. This will work on Windows, Linux, and presumably MacOS.
 
 The consumer process reads five bytes into an array from `stdin`, checks if they're equal to `ping` followed by a newline, and then responds appropriately. It'll also respond to `pong`.
 
@@ -140,7 +142,7 @@ impl TcpRunner {
 // pipes_consumer.rs
 // Consumer
 fn main() {  
-    let mut args: Vec<String> = std::env::args().collect();  
+    let args: Vec<String> = std::env::args().collect();  
     let port = u16::from_str(&args[1]).unwrap();  
     let nodelay = bool::from_str(&args[2]).unwrap();  
     let mut wrapper = ipc::tcp::TcpStreamWrapper::from_port(port, nodelay);  
@@ -163,7 +165,7 @@ Implementation wise, it was slightly more complex than the previous case. A port
 
 # Approach 3 - UDP
 
-Naturally, the next approach was to try UDP. UDP is traditionally used in these contexts for a "fire and forget" mechanism. Unlike TCP the protocol doesn't offer a way of recovering lost or out of order packets. This can be an advantage, because it keeps the connection from getting too "chatty" but if consistency is important those layers need to be implemented manually - either in or out of band. We'll sidestep this discussion because we're running both processes on the same machine and using the loopback adapter, but note that it's still possible to lose packets this way. If the socket buffer is filled with more data than is read off of it in the reading loop, it will be unapologetically dropped. Perhaps a demonstration for another post.
+Naturally, the next approach was to try UDP. UDP is traditionally used in these contexts for a "fire and forget" mechanism. Unlike TCP the protocol doesn't offer a way of recovering lost or out of order packets. This can be an advantage, because it keeps the connection from getting too "chatty" but if consistency is important those layers need to be implemented manually - either in or out of band. We'll sidestep this discussion because we're running both processes on the same machine and using the loopback adapter, but note that it's still possible to lose packets this way. If the socket buffer is filled with more data than can be read off of it in the reading loop, it will be unapologetically dropped. Perhaps a demonstration for another post.
 
 I'll just show the producer as the consumer is fairly similar.
 
@@ -189,7 +191,7 @@ impl UdpRunner {
         } else {  
             None  
         };  
-        // Another awkward sleep to make sure the child proc is ready  
+        // Awkward sleep to make sure the child proc is ready  
         sleep(Duration::from_millis(100));  
         wrapper  
             .socket  
@@ -309,32 +311,31 @@ With these structures in place, we simply lock, write, unlock, and then read whe
 
 ```rust
 pub fn run(&mut self, n: usize, print: bool) { 
-    for _ in 0..n {  
-        // Activate our lock in preparation for writing  
-        self.wrapper.signal_start();  
-        self.wrapper.write(b"ping");  
-        // Unlock after writing  
-        self.wrapper.signal_finished();  
-        unsafe {  
-            // Wait for their lock to be released so we can read  
-            if self.wrapper.their_event.wait(Timeout::Infinite).is_ok() {  
-                let str = self.wrapper.read();  
-                if str != b"pong" {  
-                    panic!("Sent ping didn't get pong")  
-                }  
-            }  
-        }  
-    }  
+	for _ in 0..n {  
+	    // Activate our lock in preparation for writing  
+	    self.wrapper.signal_start();  
+	    self.wrapper.write(b"ping");  
+	    // Unlock after writing  
+	    self.wrapper.signal_finished();  
+	        // Wait for their lock to be released so we can read  
+	    if self.wrapper.their_event.wait(Timeout::Infinite).is_ok() {  
+	        let str = self.wrapper.read();  
+	        if str != b"pong" {  
+	            panic!("Sent ping didn't get pong")  
+	        }  
+	    }  
+	} 
 }
 ```
 
 This code was horrible to write, and took some time to get right. I'm almost certain there are still bugs in there. It was complicated because:
 * We have to do all of our own synchronisation without much help. In some situations, you can imagine using a queue or messaging system to communicate out of band between the processes, letting them know when it's safe to read or write. Given our messages are so small though, this would kill all the performance we've gone to the effort of achieving
 * It's very low level. We have to marshal the bytes ourselves, and use a lot of unsafe to do so. This also exposes us to changes in the layout of structs that would lead to hard-to-find bugs
-* I came across several bugs. On the Windows implementation of the most featureful implementation there is a minimum page size [bug](https://github.com/elast0ny/shared_memory/issues/107) when allocating memory pages
+* I came across several bugs. On the Windows implementation of the most featureful crate there is a minimum page size [bug](https://github.com/elast0ny/shared_memory/issues/107) when allocating memory pages
 * It's not clear whether underlying memory can be easily resized. For our purposes this isn't a problem given we only have 8 bytes, but you can imagine this would quite quickly become an issue
 
 To be honest, unless I was absolutely sure I needed all of the shared memory performance, I wouldn't want to use code like this in Production. Other languages have shared memory frameworks to make things like this easier, but I wasn't able to find anything in Rust when I looked.
+
 
 # Results
 
@@ -342,22 +343,24 @@ I've added results for Windows and Linux, but take these with a significant grai
 
 | Platform | Approach            | Time per Operation (µs) | Ops per Second | Time Comparison to Shared Memory |
 |----------|---------------------|-------------------------|----------------|---------------------------------|
-| Linux    | 1 - stdin_stdout    | 4.802                   | 208k           | 27.7                            |
-| Linux    | 2 - tcp_nodelay     | 10.930                  | 92k            | 63.1                            |
-| Linux    | 2 - tcp_yesdelay    | 11.190                  | 89k            | 64.6                            |
-| Linux    | 3 - udp             | 9.120                   | 110k           | 52.6                            |
-| Linux    | 4 - shared_memory   | 0.173                   | 5770k          | 1.0                             |
-| Windows  | 1 - stdin_stdout    | 28.450                  | 35k            | 150.2                           |
-| Windows  | 2 - tcp_nodelay     | 39.390                  | 25k            | 208.0                           |
-| Windows  | 2 - tcp_yesdelay    | 39.360                  | 25k            | 207.8                           |
-| Windows  | 3 - udp             | 41.700                  | 24k            | 220.2                           |
-| Windows  | 4 - shared_memory   | 0.189                   | 5280k          | 1.0                             |
+| Linux    | 1 - stdin_stdout    | 4.802                   | 208k           | 27.7x                           |
+| Linux    | 2 - tcp_nodelay     | 10.930                  | 92k            | 63.1x                           |
+| Linux    | 2 - tcp_yesdelay    | 11.190                  | 89k            | 64.6x                           |
+| Linux    | 3 - udp             | 9.120                   | 110k           | 52.6x                           |
+| Linux    | 4 - shared_memory   | 0.173                   | 5770k          | 1.0x                            |
+|          |                     |                         |                |                                 |
+| Windows  | 1 - stdin_stdout    | 28.450                  | 35k            | 150.2x                          |
+| Windows  | 2 - tcp_nodelay     | 39.390                  | 25k            | 208.0x                          |
+| Windows  | 2 - tcp_yesdelay    | 39.360                  | 25k            | 207.8x                          |
+| Windows  | 3 - udp             | 41.700                  | 24k            | 220.2x                          |
+| Windows  | 4 - shared_memory   | 0.189                   | 5280k          | 1.0x                            |
+
 
 
 ![results](../ipc-results-graph.png)
 
 
-As is pretty clear, the time per operation is similar for most of the approaches, apart from using shared memory. We can perform a ping-pong in under 200ns, or around 1000 processor cycles. I have to admit, I still found this a little disappointing. Moving a few bytes around should be faster than that, but I'm going to resist digging too deep yet. Preparing an environment with core-pinning and the correct thread priority is tricky, and given we have to do this with two concurrently running processes, it's even more difficult. Consider too that with hyper-threaded cores, should these processes run on different physical cores, or different logical cores? Do I have to disable Spectre/Meltdown type mitigations? Which cache cache level can we share? Having sunk a lot of hours into this situation before, I'm going to leave the log unflipped for now.
+The time per operation is similar for most of the approaches, apart from using shared memory. With shared memory we can perform a ping-pong in under 200ns, or around 1000 processor cycles. I have to admit, I still found this a little disappointing. Moving a few bytes around should be faster than that, but I'm going to resist digging too deep yet. Preparing an environment with core-pinning and the correct thread priority is tricky, and given we have to do this with two concurrently running processes, it's even more difficult. Consider too that with hyper-threaded cores, should these processes run on different physical cores, or different logical cores? Do I have to disable Spectre/Meltdown type mitigations? Which memory cache level can we share? Having sunk a lot of hours similar situations before, I'm going to leave the log unflipped for now.
 
 ## System calls
 
@@ -397,7 +400,7 @@ $ strace -r cargo run --release -- -n 10 -m tcp
 
 ```
 
-How expensive are system calls? Well I've used `strace -r` to show times per call, but given previous discussions about how calling a timer can affect times (it adds at least one syscall per line) I won't take those numbers as ironclad. Especially `strace` is pausing and unpausing the process. Roughly roughly speaking though we're looking at least a few microseconds per read or write. Four of those, and you can see why tcp struggles to do better than 10µs per operation.
+How expensive are system calls? Well I've used `strace -r` to show times per call, but given previous discussions about how calling a timer can affect times (it adds at least one syscall per line) I won't take those numbers as ironclad. Especially `strace` is pausing and unpausing the process. Roughly roughly speaking though we're looking at least a few microseconds per read or write. Four of those, and you can see why tcp struggles to do better than 10µs per operation. This is similar for all of the other approaches.
 
 System calls on Linux are complex, and there are various mitigations, but having to wipe registers, validate, drop down into the kernel ring, get the output, and then undo those steps takes time. So if you really care about microseconds, try and avoid them in your hot loops.
 
@@ -421,6 +424,6 @@ $ strace -r  ./target/release/ipc -n 10 -m shmem
 
 I was surprised at how similarly most things performed. I did a cursory investigation into Linux-specific approaches like dbus and Unix Domain Sockets, but they seemed to be in the same ballpark as the non-shared memory approaches. The only other thing to try would be memory-mapped files, but I thought I'd save that for when I wanted to try something similar with larger blocks of data.
 
-If I had to do this in Production, for the majority of workloads I'd probably still use an HTTP / TCP connection. It's portable, reliable on message failure, and I could split it across machines if needs be. However for the cases where latency really matters, the maintenance overhead of using shared memory is definitely worth it.
+If I had to do this in Production, for the majority of workloads I'd probably still use an HTTP / TCP connection. It's portable, reliable on message failure, and I could split it across machines if needs be. However for the cases where latency really matters, the maintenance overhead of using shared memory is worth it.
 
 For anyone who wants a deeper dive, or to offer critiques and improvements, the code is available [here](https://github.com/3tilley/rust-experiments/tree/master/ipc).
